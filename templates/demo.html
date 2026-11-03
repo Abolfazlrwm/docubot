@@ -1,0 +1,117 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DocuBot — chat with your documents</title>
+  <meta name="description" content="Live demo of the DocuBot RAG API: upload documents, then search and chat over them with cited, streaming answers.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+  <link rel="stylesheet" href="{% static 'demo/app.css' %}">
+</head>
+<body>
+  <!-- ============ Auth screen ============ -->
+  <section id="auth-screen" class="auth-screen" hidden>
+    <div class="auth-card">
+      <div class="brand">
+        <span class="brand-logo">🤖</span>
+        <h1>DocuBot</h1>
+        <p class="brand-tag">Chat with your documents — RAG answers with citations.</p>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="login" role="tab">Sign in</button>
+        <button class="tab" data-tab="register" role="tab">Create account</button>
+      </div>
+      <form id="login-form" class="auth-form">
+        <label>Username
+          <input name="username" autocomplete="username" required>
+        </label>
+        <label>Password
+          <input name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="btn primary">Sign in</button>
+      </form>
+      <form id="register-form" class="auth-form" hidden>
+        <label>Username
+          <input name="username" autocomplete="username" required>
+        </label>
+        <label>Email
+          <input name="email" type="email" autocomplete="email" required>
+        </label>
+        <label>Password
+          <input name="password" type="password" autocomplete="new-password" minlength="8" required>
+        </label>
+        <button type="submit" class="btn primary">Create account</button>
+      </form>
+      <p id="auth-error" class="form-error" hidden></p>
+      <p class="auth-hint">Demo tip: with <code>EMBEDDING_PROVIDER=fake</code> and <code>LLM_PROVIDER=fake</code> everything runs offline, no API keys needed.</p>
+    </div>
+  </section>
+
+  <!-- ============ Main app ============ -->
+  <div id="app" class="app" hidden>
+    <aside class="sidebar">
+      <header class="sidebar-head">
+        <span class="brand-logo small">🤖</span>
+        <span class="sidebar-title">DocuBot</span>
+        <button id="logout-btn" class="icon-btn" title="Sign out">⎋</button>
+      </header>
+
+      <div class="sidebar-actions">
+        <button id="new-conversation" class="btn primary block">+ New conversation</button>
+        <button id="toggle-library" class="btn ghost block">📚 Document library</button>
+      </div>
+
+      <nav id="conversation-list" class="conversation-list" aria-label="Conversations"></nav>
+
+      <footer class="sidebar-foot">
+        <a href="/api/docs/" target="_blank" rel="noopener">API docs ↗</a>
+        <span id="user-name"></span>
+      </footer>
+    </aside>
+
+    <main class="chat-pane">
+      <header class="chat-head">
+        <h2 id="chat-title">Pick or create a conversation</h2>
+        <span id="health-dot" class="health-dot" title="API health"></span>
+      </header>
+      <div id="messages" class="messages">
+        <div class="empty-state">
+          <p class="empty-emoji">💬</p>
+          <p>Ask anything about your uploaded documents.<br>Answers arrive token-by-token with numbered sources.</p>
+        </div>
+      </div>
+      <form id="ask-form" class="ask-form">
+        <input id="ask-input" type="text" placeholder="Ask about your documents…" autocomplete="off" maxlength="2000">
+        <button type="submit" class="btn primary send" title="Send">➤</button>
+      </form>
+    </main>
+  </div>
+
+  <!-- ============ Document library drawer ============ -->
+  <div id="library-overlay" class="overlay" hidden>
+    <aside class="drawer" role="dialog" aria-label="Document library">
+      <header class="drawer-head">
+        <h3>📚 Document library</h3>
+        <button id="close-library" class="icon-btn" title="Close">✕</button>
+      </header>
+
+      <form id="upload-form" class="upload-form">
+        <label class="dropzone" for="file-input">
+          <input id="file-input" type="file" accept=".pdf,.txt" hidden>
+          <span class="dropzone-icon">⬆️</span>
+          <span>Drop a <strong>PDF</strong> or <strong>TXT</strong> here, or click to choose<br>
+          <small>max 10 MB — processed in the background</small></span>
+        </label>
+      </form>
+      <div id="upload-progress" class="upload-progress" hidden></div>
+
+      <div id="document-list" class="document-list"></div>
+    </aside>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="{% static 'demo/app.js' %}"></script>
+</body>
+</html>
