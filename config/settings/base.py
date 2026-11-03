@@ -197,6 +197,10 @@ LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1024"))
 # RAG: how many previous conversation messages to include as history.
 CHAT_HISTORY_MESSAGES = int(os.environ.get("CHAT_HISTORY_MESSAGES", "6"))
 
+# Streaming answers (Server-Sent Events): how often to flush the Fake provider's
+# output and the idle timeout for the OpenAI-compatible stream reader.
+STREAM_CHUNK_SIZE = int(os.environ.get("STREAM_CHUNK_SIZE", "24"))
+
 # Embeddings: "local" (fastembed, default), "fake" (tests/dev), "openai" (HTTP).
 EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "local")
 EMBEDDING_MODEL = os.environ.get(
