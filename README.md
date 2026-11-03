@@ -72,7 +72,7 @@ context blocks → LLM with a citation + anti-injection system prompt → answer
 with a `sources` snapshot (chunk content is snapshotted into JSON so chat
 history survives document deletion/reprocessing).
 
-Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · Endpoint reference: [`docs/API.md`](docs/API.md).
 
 ## Quickstart
 
