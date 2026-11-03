@@ -25,7 +25,11 @@ class Command(BaseCommand):
             document.status = Document.Status.PENDING
             document.error_message = ""
             document.processing_started_at = None
-            document.save(update_fields=["status", "error_message", "processing_started_at", "updated_at"])
+            document.save(
+                update_fields=["status", "error_message", "processing_started_at", "updated_at"]
+            )
         for document_id in document_ids:
             _enqueue_processing(document_id)
-        self.stdout.write(self.style.SUCCESS(f"Re-queued {len(document_ids)} document(s) for re-embedding."))
+        self.stdout.write(
+            self.style.SUCCESS(f"Re-queued {len(document_ids)} document(s) for re-embedding.")
+        )

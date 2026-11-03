@@ -11,8 +11,8 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.db import connection, transaction
-from pgvector.django import CosineDistance
 from pgvector import Vector
+from pgvector.django import CosineDistance
 
 from apps.common.ai.embeddings import get_embedding_provider
 from apps.documents.models import Chunk, Document
