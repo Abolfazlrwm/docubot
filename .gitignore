@@ -3,22 +3,36 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+*.egg-info/
 
 # Django
 media/
 staticfiles/
 db.sqlite3
 *.log
+celerybeat-schedule*
 
 # Tooling
 .pytest_cache/
 .ruff_cache/
 .coverage
 coverage.xml
+coverage.json
 htmlcov/
 
-# Environment
+# Environment & secrets
 .env
+.env.*
+!.env.example
+
+# Local model caches
+fastembed_cache/
+model_cache/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
 
 # Docker volumes
 pgdata/
