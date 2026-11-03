@@ -135,13 +135,16 @@ REST_FRAMEWORK = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "DocuChat API",
-    "DESCRIPTION": "RAG knowledge-base API: users upload documents and chat over them.",
-    "VERSION": "1.0.0",
+    "TITLE": "DocuBot API",
+    "DESCRIPTION": "RAG knowledge-base API: upload documents, then search and chat over them.",
+    "VERSION": "1.1.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "TAGS": [
         {"name": "auth", "description": "Registration, login and the current user."},
         {"name": "documents", "description": "Upload, list, inspect and delete documents."},
+        {"name": "search", "description": "Semantic search over ready documents."},
+        {"name": "chat", "description": "Conversations and RAG answers (JSON and SSE streaming)."},
+        {"name": "health", "description": "Service health for load balancers and orchestrators."},
     ],
 }
 
