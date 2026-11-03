@@ -19,7 +19,7 @@ def make_ready_document(owner, title="Doc", chunks_data=None):
     """Create a READY document with embedded chunks."""
     if chunks_data is None:
         chunks_data = ["Default chunk content."]
-    
+
     document = Document.objects.create(
         owner=owner,
         title=title,
@@ -144,7 +144,9 @@ class TestSearchOwnerIsolation:
     """Users can only search their own documents."""
 
     def test_only_returns_own_documents(self, auth_api, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
         make_ready_document(user, "My Doc", ["my secret"])
         make_ready_document(other, "Other Doc", ["my secret"])
 
@@ -154,8 +156,10 @@ class TestSearchOwnerIsolation:
         assert response.data[0]["document_title"] == "My Doc"
 
     def test_document_ids_filter_respects_ownership(self, auth_api, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
-        my_doc = make_ready_document(user, "My Doc", ["content"])
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
+        make_ready_document(user, "My Doc", ["content"])
         other_doc = make_ready_document(other, "Other Doc", ["content"])
 
         # Try to request other user's document ID
@@ -175,7 +179,7 @@ class TestSearchTopK:
 
     def test_defaults_to_settings(self, auth_api, user, settings):
         settings.RETRIEVAL_TOP_K = 2
-        make_ready_document(user, "Doc", ["a", "b", "c"])
+        make_ready_document(user, "Doc", ["a b", "a c", "a d"])
         response = auth_api.post(SEARCH_URL, {"query": "a"})
 
         assert len(response.data) == 2
@@ -187,7 +191,7 @@ class TestSearchDocumentIdsFilter:
     def test_filters_to_specified_documents(self, auth_api, user):
         doc1 = make_ready_document(user, "Doc 1", ["apple"])
         doc2 = make_ready_document(user, "Doc 2", ["apple"])
-        doc3 = make_ready_document(user, "Doc 3", ["apple"])
+        make_ready_document(user, "Doc 3", ["apple"])
 
         response = auth_api.post(SEARCH_URL, {"query": "apple", "document_ids": [doc1.id, doc2.id]})
 
@@ -208,7 +212,9 @@ class TestSearchMinScore:
 
     def test_min_score_filters_results(self, auth_api, user, settings):
         settings.RETRIEVAL_MIN_SCORE = 0.5
-        make_ready_document(user, "Doc", ["relevant content", "unrelated text about something else"])
+        make_ready_document(
+            user, "Doc", ["relevant content", "unrelated text about something else"]
+        )
         response = auth_api.post(SEARCH_URL, {"query": "relevant"})
 
         # Should only return the highly relevant chunk

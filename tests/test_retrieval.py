@@ -2,7 +2,6 @@
 
 import pytest
 from django.contrib.auth import get_user_model
-from pgvector.django import CosineDistance
 
 from apps.chat.retrieval import retrieve
 from apps.common.ai.embeddings import FakeEmbeddingProvider
@@ -40,7 +39,7 @@ def make_document_with_chunks(owner, title="Doc", chunks_data=None):
     """Create a document with multiple chunks with known embeddings."""
     if chunks_data is None:
         chunks_data = ["First chunk content.", "Second chunk content."]
-    
+
     document = Document.objects.create(
         owner=owner,
         title=title,
@@ -66,18 +65,21 @@ class TestRetrieveOwnerIsolation:
     """Only the owner's chunks should be returned."""
 
     def test_returns_only_owners_chunks(self, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
         make_document(user, "My Doc", "My secret content.")
         make_document(other, "Other Doc", "Other secret content.")
 
         results = retrieve(user, "secret")
 
         assert len(results) == 1
-        assert results[0].document_title == "My Doc"
-        assert results[0].owner == user  # Not directly accessible, but document owner is user
+        assert results[0].document_title == "My Doc"  # the owner's document, not the other user's
 
     def test_other_users_chunks_not_leaked(self, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
         make_document(user, "My Doc", "alpha beta gamma")
         make_document(other, "Other Doc", "alpha beta gamma")
 
@@ -120,13 +122,14 @@ class TestRetrieveOrdering:
     """Results should be ordered by cosine similarity (highest first)."""
 
     def test_orders_by_score_descending(self, user):
-        # Create chunks with very different content so embeddings differ
-        doc = make_document_with_chunks(
+        # Both chunks share words with the query (so both pass the min-score
+        # cutoff) but the exact match must rank first.
+        make_document_with_chunks(
             user,
             "Test Doc",
             [
-                "The quick brown fox jumps over the lazy dog.",
-                "Completely different text about cats and mice.",
+                "quick brown fox",
+                "quick brown dog jumps around",
             ],
         )
 
@@ -150,7 +153,7 @@ class TestRetrieveTopK:
 
     def test_defaults_to_settings(self, user, settings):
         settings.RETRIEVAL_TOP_K = 2
-        make_document_with_chunks(user, "Doc", ["a", "b", "c"])
+        make_document_with_chunks(user, "Doc", ["a b", "a c", "a d"])
 
         results = retrieve(user, "a")
 
@@ -163,7 +166,7 @@ class TestRetrieveDocumentIdsFilter:
     def test_filters_by_document_ids(self, user):
         doc1 = make_document(user, "Doc 1", "apple banana")
         doc2 = make_document(user, "Doc 2", "apple banana")
-        doc3 = make_document(user, "Doc 3", "apple banana")
+        make_document(user, "Doc 3", "apple banana")
 
         results = retrieve(user, "apple", document_ids=[doc1.id, doc2.id])
 
@@ -172,8 +175,10 @@ class TestRetrieveDocumentIdsFilter:
         assert returned_ids == {doc1.id, doc2.id}
 
     def test_ignores_foreign_document_ids(self, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
-        my_doc = make_document(user, "My Doc", "secret")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
+        make_document(user, "My Doc", "secret")
         other_doc = make_document(other, "Other Doc", "secret")
 
         # Try to request other user's document - should be ignored
@@ -195,7 +200,7 @@ class TestRetrieveMinScore:
 
     def test_filters_by_min_score(self, user, settings):
         settings.RETRIEVAL_MIN_SCORE = 0.5
-        doc = make_document_with_chunks(
+        make_document_with_chunks(
             user,
             "Doc",
             [
@@ -241,14 +246,17 @@ class TestRetrieveReturnedFields:
 class TestRetrieveNoNPlusOne:
     """Retrieval should not cause N+1 queries."""
 
-    def test_select_related_document(self, user, django_assert_num_queries):
-        make_document(user, "Doc", "content")
+    def test_select_related_document(self, user, django_assert_max_num_queries):
+        make_document_with_chunks(user, "Doc", [f"chunk number {i} content" for i in range(10)])
+        retrieve(user, "content")  # warm the lru-cached pgvector version lookup
 
-        # One query for the retrieval (includes select_related)
-        with django_assert_num_queries(1):
+        # Bounded by 4 regardless of the 10 chunks (savepoint + release, hnsw
+        # GUC, and the single SELECT with select_related) — proof there is no
+        # per-chunk N+1.
+        with django_assert_max_num_queries(4):
             results = retrieve(user, "content")
             # Access document_title to force select_related
-            _ = results[0].document_title
+            _ = [r.document_title for r in results]
 
 
 class TestRetrieveHNSWIndexExists:
@@ -256,19 +264,21 @@ class TestRetrieveHNSWIndexExists:
 
     def test_hnsw_index_on_embedding(self):
         from django.db import connection
-        
+
         with connection.cursor() as cursor:
             cursor.execute("""
-                SELECT indexname FROM pg_indexes 
-                WHERE tablename = 'documents_chunk' 
+                SELECT indexname FROM pg_indexes
+                WHERE tablename = 'documents_chunk'
                 AND indexname LIKE '%hnsw%'
             """)
             rows = cursor.fetchall()
-        
+
         assert len(rows) > 0, "HNSW index should exist on documents_chunk table"
         # Verify it's on the embedding column
         index_names = [row[0] for row in rows]
-        assert any('embedding' in name for name in index_names), "HNSW index should be on embedding column"
+        assert any("embedding" in name for name in index_names), (
+            "HNSW index should be on embedding column"
+        )
 
 
 class TestRetrieveEmptyResults:
@@ -291,19 +301,22 @@ class TestRetrieveCosineSimilarity:
         text = "Exact match content for testing."
         make_document(user, "Doc", text)
         provider = FakeEmbeddingProvider(dimensions=384)
-        query_embedding = provider.embed([text])[0]
-        
+        provider.embed([text])[0]
+
         # The chunk embedding and query embedding should be identical for same text
         # But FakeEmbeddingProvider is deterministic based on content hash
         # So same text = same embedding = score of 1.0 (cosine similarity)
         results = retrieve(user, text)
-        
+
         assert len(results) == 1
         assert results[0].score == pytest.approx(1.0, abs=1e-6)
 
-    def test_different_text_scores_lower(self, user):
+    def test_different_text_scores_lower(self, user, settings):
+        # Lift the min-score cutoff so both chunks come back and the ORDER of
+        # similarity can actually be observed.
+        settings.RETRIEVAL_MIN_SCORE = -1.0
         make_document_with_chunks(user, "Doc", ["Text about apples.", "Text about oranges."])
         results = retrieve(user, "apples")
-        
+
         assert len(results) == 2
         assert results[0].score > results[1].score

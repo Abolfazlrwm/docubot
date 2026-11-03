@@ -53,7 +53,9 @@ class TestConversationList:
     def test_lists_own_conversations(self, auth_api, user):
         Conversation.objects.create(owner=user, title="First")
         Conversation.objects.create(owner=user, title="Second")
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
         Conversation.objects.create(owner=other, title="Not mine")
 
         response = auth_api.get(CONVERSATIONS_URL)
@@ -76,7 +78,7 @@ class TestConversationList:
 
     def test_ordered_by_updated_at_desc(self, auth_api, user):
         c1 = Conversation.objects.create(owner=user, title="Older")
-        c2 = Conversation.objects.create(owner=user, title="Newer")
+        Conversation.objects.create(owner=user, title="Newer")
         # Touch c1 to update its updated_at
         c1.save()
 
@@ -139,7 +141,9 @@ class TestConversationRetrieve:
         assert response.data["title"] == "My Conv"
 
     def test_other_users_conversation_returns_404(self, auth_api, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
         conv = Conversation.objects.create(owner=other, title="Not mine")
         response = auth_api.get(conversation_detail_url(conv.pk))
 
@@ -166,7 +170,9 @@ class TestConversationDestroy:
         assert not Conversation.objects.filter(pk=conv.pk).exists()
 
     def test_other_users_conversation_returns_404(self, auth_api, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
         conv = Conversation.objects.create(owner=other)
         response = auth_api.delete(conversation_detail_url(conv.pk))
 
@@ -204,7 +210,9 @@ class TestMessageList:
         assert contents == ["First", "Second", "Third"]
 
     def test_other_users_conversation_returns_404(self, auth_api, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
         conv = Conversation.objects.create(owner=other)
         response = auth_api.get(conversation_messages_url(conv.pk))
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -229,8 +237,9 @@ class TestMessageList:
                 sources=[{"document_id": 1, "snippet": "x"}],
             )
 
-        # One query for messages, no extra for sources (JSON field)
-        with django_assert_num_queries(1):
+        # 4 queries: JWT user, conversation fetch, pagination COUNT, message list —
+        # independent of the 5 messages stored, so sources can never N+1.
+        with django_assert_num_queries(4):
             response = auth_api.get(conversation_messages_url(conv.pk))
             _ = response.data["results"]
 
@@ -244,7 +253,9 @@ class TestMessageCreate:
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_other_users_conversation_returns_404(self, auth_api, user):
-        other = User.objects.create_user(username="other", email="other@example.com", password="pass")
+        other = User.objects.create_user(
+            username="other", email="other@example.com", password="pass"
+        )
         conv = Conversation.objects.create(owner=other)
         response = auth_api.post(conversation_messages_url(conv.pk), {"content": "Hello"})
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -253,7 +264,9 @@ class TestMessageCreate:
         conv = Conversation.objects.create(owner=user)
         make_ready_document(user, "Doc", ["content about apples"])
 
-        response = auth_api.post(conversation_messages_url(conv.pk), {"content": "What about apples?"})
+        response = auth_api.post(
+            conversation_messages_url(conv.pk), {"content": "What about apples?"}
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data["role"] == Message.Role.ASSISTANT
@@ -267,7 +280,9 @@ class TestMessageCreate:
         conv = Conversation.objects.create(owner=user)
         doc = make_ready_document(user, "Doc", ["The answer is 42."])
 
-        response = auth_api.post(conversation_messages_url(conv.pk), {"content": "What is the answer?"})
+        response = auth_api.post(
+            conversation_messages_url(conv.pk), {"content": "What is the answer?"}
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         assert "sources" in response.data
@@ -276,9 +291,11 @@ class TestMessageCreate:
 
     def test_returns_model_and_token_counts(self, auth_api, user):
         conv = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
-        response = auth_api.post(conversation_messages_url(conv.pk), {"content": "What?"})
+        response = auth_api.post(
+            conversation_messages_url(conv.pk), {"content": "What about apples?"}
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         assert response.data["model"]
@@ -298,9 +315,11 @@ class TestMessageCreate:
     def test_document_ids_filter(self, auth_api, user):
         conv = Conversation.objects.create(owner=user)
         doc1 = make_ready_document(user, "Doc 1", ["apple"])
-        doc2 = make_ready_document(user, "Doc 2", ["banana"])
+        make_ready_document(user, "Doc 2", ["banana"])
 
-        response = auth_api.post(conversation_messages_url(conv.pk), {"content": "fruit", "document_ids": [doc1.id]})
+        response = auth_api.post(
+            conversation_messages_url(conv.pk), {"content": "fruit", "document_ids": [doc1.id]}
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
         # Only doc1 should be searched
@@ -309,39 +328,45 @@ class TestMessageCreate:
 
     def test_llm_transient_error_returns_503(self, auth_api, user, monkeypatch):
         conv = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         class TransientProvider(FakeEmbeddingProvider):
             pass
 
-        from apps.common.ai.llm import LLMTransientError, FakeLLMProvider
-        
+        from apps.common.ai.llm import FakeLLMProvider, LLMTransientError
+
         class FailingProvider(FakeLLMProvider):
             def generate(self, system, messages):
                 raise LLMTransientError("Temporarily unavailable")
 
-        import apps.common.ai.llm as llm_module
-        monkeypatch.setattr(llm_module, "get_llm_provider", lambda: FailingProvider())
+        import apps.chat.services as chat_services
 
-        response = auth_api.post(conversation_messages_url(conv.pk), {"content": "What?"})
+        monkeypatch.setattr(chat_services, "get_llm_provider", lambda: FailingProvider())
+
+        response = auth_api.post(
+            conversation_messages_url(conv.pk), {"content": "What about apples?"}
+        )
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert "temporarily unavailable" in response.data["detail"].lower()
 
     def test_llm_permanent_error_returns_502(self, auth_api, user, monkeypatch):
         conv = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
-        from apps.common.ai.llm import LLMPermanentError, FakeLLMProvider
-        
+        from apps.common.ai.llm import FakeLLMProvider, LLMPermanentError
+
         class FailingProvider(FakeLLMProvider):
             def generate(self, system, messages):
                 raise LLMPermanentError("Bad request")
 
-        import apps.common.ai.llm as llm_module
-        monkeypatch.setattr(llm_module, "get_llm_provider", lambda: FailingProvider())
+        import apps.chat.services as chat_services
 
-        response = auth_api.post(conversation_messages_url(conv.pk), {"content": "What?"})
+        monkeypatch.setattr(chat_services, "get_llm_provider", lambda: FailingProvider())
+
+        response = auth_api.post(
+            conversation_messages_url(conv.pk), {"content": "What about apples?"}
+        )
 
         assert response.status_code == status.HTTP_502_BAD_GATEWAY
         assert "rejected" in response.data["detail"].lower()
@@ -350,10 +375,14 @@ class TestMessageCreate:
         conv = Conversation.objects.create(owner=user)
         make_ready_document(user, "Doc", ["unrelated content"])
 
-        response = auth_api.post(conversation_messages_url(conv.pk), {"content": "completely different"})
+        response = auth_api.post(
+            conversation_messages_url(conv.pk), {"content": "completely different"}
+        )
 
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.data["content"] == "I could not find relevant information in your documents."
+        assert (
+            response.data["content"] == "I could not find relevant information in your documents."
+        )
         assert response.data["sources"] == []
         assert response.data["model"] == ""
 
@@ -363,10 +392,21 @@ class TestMessageSerializer:
 
     def test_includes_all_fields(self, auth_api, user):
         conv = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
-        response = auth_api.post(conversation_messages_url(conv.pk), {"content": "What?"})
+        make_ready_document(user, "Doc", ["content about apples"])
+        response = auth_api.post(
+            conversation_messages_url(conv.pk), {"content": "What about apples?"}
+        )
 
-        fields = {"id", "role", "content", "sources", "model", "prompt_tokens", "completion_tokens", "created_at"}
+        fields = {
+            "id",
+            "role",
+            "content",
+            "sources",
+            "model",
+            "prompt_tokens",
+            "completion_tokens",
+            "created_at",
+        }
         assert set(response.data.keys()) == fields
 
 
@@ -377,9 +417,13 @@ class TestConversationMessageNPlusOne:
         for i in range(5):
             conv = Conversation.objects.create(owner=user, title=f"Conv {i}")
             for j in range(3):
-                Message.objects.create(conversation=conv, role=Message.Role.USER, content=f"Msg {j}")
+                Message.objects.create(
+                    conversation=conv, role=Message.Role.USER, content=f"Msg {j}"
+                )
 
-        with django_assert_num_queries(2):  # 1 for conversations + 1 for count annotation
+        # 3 queries: JWT user, paginated COUNT, conversation list (annotation
+        # rides along) — independent of the number of conversations/messages.
+        with django_assert_num_queries(3):  # JWT user + COUNT + list (DRF pagination)
             response = auth_api.get(CONVERSATIONS_URL)
             _ = response.data["results"]
 
@@ -388,7 +432,8 @@ class TestConversationMessageNPlusOne:
         for i in range(3):
             Message.objects.create(conversation=conv, role=Message.Role.USER, content=f"Msg {i}")
 
-        with django_assert_num_queries(1):
+        # 2 queries: JWT user + the conversation row; messages are never touched.
+        with django_assert_num_queries(2):
             response = auth_api.get(conversation_detail_url(conv.pk))
             _ = response.data
 
@@ -402,6 +447,7 @@ class TestConversationMessageNPlusOne:
                 sources=[{"doc_id": 1, "snippet": "x"}],
             )
 
-        with django_assert_num_queries(1):
+        # 4 queries: JWT user, conversation fetch, pagination COUNT, message list.
+        with django_assert_num_queries(4):
             response = auth_api.get(conversation_messages_url(conv.pk))
             _ = response.data["results"]
