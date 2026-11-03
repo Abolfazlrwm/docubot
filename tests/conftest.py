@@ -2,6 +2,7 @@
 so tests never write into the real media folder."""
 
 import pytest
+from django.core.cache import cache
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -11,6 +12,18 @@ from tests.factories import PASSWORD, UserFactory
 @pytest.fixture(autouse=True)
 def media_root(tmp_path, settings):
     settings.MEDIA_ROOT = tmp_path / "media"
+
+
+@pytest.fixture(autouse=True)
+def clean_cache():
+    """Start every test with an empty cache.
+
+    Rate-limit buckets live in the cache; without this, a login in one test
+    would count against the next test's throttle allowance.
+    """
+    cache.clear()
+    yield
+    cache.clear()
 
 
 @pytest.fixture(autouse=True)
