@@ -1,5 +1,6 @@
 from django.contrib import admin
 from django.urls import include, path
+from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from apps.common.views import health_view
@@ -12,4 +13,6 @@ urlpatterns = [
     path("api/v1/health/", health_view, name="health"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
+    path("demo/", TemplateView.as_view(template_name="demo.html"), name="demo"),
+    path("", TemplateView.as_view(template_name="demo.html"), name="home"),
 ]
