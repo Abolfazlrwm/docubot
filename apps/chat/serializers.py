@@ -6,13 +6,28 @@ from apps.chat.retrieval import RetrievedChunk
 
 
 class SearchRequestSerializer(serializers.Serializer):
-    query = serializers.CharField(max_length=settings.QUERY_MAX_LENGTH)
-    top_k = serializers.IntegerField(
-        required=False, min_value=1, max_value=settings.RETRIEVAL_MAX_TOP_K
-    )
+    query = serializers.CharField()
+    top_k = serializers.IntegerField(required=False, min_value=1)
     document_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, allow_empty=True
     )
+
+    def validate_query(self, value: str) -> str:
+        # Read at validation time so tests and ops can tune the setting without
+        # a process restart (a class-level max_length would freeze it at import).
+        max_length = settings.QUERY_MAX_LENGTH
+        if len(value) > max_length:
+            raise serializers.ValidationError(
+                f"Query is too long ({len(value)} characters). Maximum is {max_length}."
+            )
+        return value
+
+    def validate_top_k(self, value: int | None) -> int | None:
+        if value is not None and value > settings.RETRIEVAL_MAX_TOP_K:
+            raise serializers.ValidationError(
+                f"top_k may not exceed {settings.RETRIEVAL_MAX_TOP_K}."
+            )
+        return value
 
 
 class SearchResultSerializer(serializers.Serializer):
