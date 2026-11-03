@@ -47,7 +47,7 @@ jobs:
       DJANGO_SECRET_KEY: ci-only-secret-key-for-tests
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
