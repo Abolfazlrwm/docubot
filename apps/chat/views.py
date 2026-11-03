@@ -23,6 +23,9 @@ from apps.common.throttling import WriteMethodsRateThrottle
 class SearchView(APIView):
     """Semantic search over the authenticated user's ready documents."""
 
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "search"
+
     @extend_schema(
         tags=["search"],
         summary="Semantic search in my documents",
@@ -88,6 +91,9 @@ class ConversationViewSet(
 class MessageListCreateView(generics.ListCreateAPIView):
     """GET: chronological history. POST: ask a question, get the assistant reply."""
 
+    throttle_classes = [WriteMethodsRateThrottle]
+    throttle_scope = "chat"
+
     def get_serializer_class(self):
         return AskSerializer if self.request.method == "POST" else MessageSerializer
 
@@ -128,3 +134,42 @@ class MessageListCreateView(generics.ListCreateAPIView):
         output = MessageSerializer(assistant_message)
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+@extend_schema(
+    summary="Ask a question and stream the answer (Server-Sent Events)",
+    description=(
+        "Same RAG turn as the JSON endpoint, but the answer arrives as an "
+        "event stream: `sources`, repeated `delta` events, then `done`. "
+        "A failing LLM produces an `error` event; the turn is then not persisted."
+    ),
+    request=AskSerializer,
+    responses={(200, "text/event-stream"): MessageSerializer},
+    tags=["chat"],
+)
+class MessageStreamView(APIView):
+    """POST: ask a question, stream the answer as text/event-stream."""
+
+    throttle_classes = [WriteMethodsRateThrottle]
+    throttle_scope = "chat"
+
+    def post(self, request, conversation_pk: int):
+        conversation = get_object_or_404(Conversation, pk=conversation_pk, owner=request.user)
+        input_serializer = AskSerializer(data=request.data)
+        input_serializer.is_valid(raise_exception=True)
+        data = input_serializer.validated_data
+
+        generator = services.stream_answer(
+            request.user,
+            conversation,
+            data["content"],
+            document_ids=data.get("document_ids"),
+        )
+        return StreamingHttpResponse(
+            generator,
+            content_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # nginx: do not buffer the stream
+            },
+        )

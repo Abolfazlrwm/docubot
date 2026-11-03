@@ -121,6 +121,14 @@ REST_FRAMEWORK = {
         "rest_framework.filters.OrderingFilter",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    # Scoped rate limits (see apps/common/throttling.py). Views opt in with a
+    # throttle_scope; rates are env-tunable for load tests and big instances.
+    "DEFAULT_THROTTLE_RATES": {
+        "auth": os.environ.get("THROTTLE_AUTH", "30/min"),
+        "chat": os.environ.get("THROTTLE_CHAT", "60/min"),
+        "search": os.environ.get("THROTTLE_SEARCH", "60/min"),
+        "upload": os.environ.get("THROTTLE_UPLOAD", "60/hour"),
+    },
 }
 
 SPECTACULAR_SETTINGS = {
