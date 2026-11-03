@@ -1,0 +1,47 @@
+name: Bug report
+description: Something is broken — tell us what, where and how to reproduce it.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the exact error message or a screenshot.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Upload …
+        2. POST /api/v1/…
+        3. See error
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - API (web)
+        - Worker / document processing
+        - Retrieval / chat / streaming
+        - Demo UI
+        - Docker / deployment
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: '"docker compose logs web worker" output for backend issues.'
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: DocuBot version / commit
+      placeholder: main @ abc1234
+    validations:
+      required: true
