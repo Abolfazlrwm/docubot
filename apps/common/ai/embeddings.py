@@ -1,7 +1,8 @@
 """Embedding provider abstraction.
 
 Implementations:
-- FakeEmbeddingProvider: deterministic hash vectors, no network (tests/dev).
+- FakeEmbeddingProvider: deterministic hashed bag-of-words vectors, no network
+  (tests and offline demos: related texts land close together).
 - LocalEmbeddingProvider: fastembed ONNX models, loaded once per process.
 - OpenAICompatibleEmbeddingProvider: any OpenAI-style /embeddings HTTP endpoint.
 
@@ -11,6 +12,7 @@ get_embedding_provider(); callers embed through embed_texts() which batches.
 
 import hashlib
 import math
+import re
 import struct
 from abc import ABC, abstractmethod
 
@@ -40,7 +42,14 @@ class EmbeddingProvider(ABC):
 
 
 class FakeEmbeddingProvider(EmbeddingProvider):
-    """Deterministic hash-based unit vectors; used in tests and optional dev mode."""
+    """Deterministic hashed bag-of-words vectors; tests and offline demos.
+
+    Every token contributes a stable pseudo-random vector; the normalized sum
+    is the text's embedding. Identical texts embed identically and texts that
+    share words land close together, so retrieval behaves sensibly without a
+    neural model. This is NOT semantic quality — production deployments should
+    use the local (fastembed) or openai provider.
+    """
 
     def __init__(self, dimensions: int = 384) -> None:
         self.dimensions = dimensions
@@ -49,19 +58,31 @@ class FakeEmbeddingProvider(EmbeddingProvider):
         return [_deterministic_vector(text, self.dimensions) for text in texts]
 
 
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+
+
 def _deterministic_vector(text: str, dimensions: int) -> list[float]:
     """A stable, normalized vector derived only from the text content."""
+    tokens = _TOKEN_RE.findall(text.lower()) or [text or "\x00empty"]
+    vector = [0.0] * dimensions
+    for token in tokens:
+        for index, value in enumerate(_token_hash_vector(token, dimensions)):
+            vector[index] += value
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm == 0.0:  # practically impossible, but keep the contract
+        return [1.0] + [0.0] * (dimensions - 1)
+    return [value / norm for value in vector]
+
+
+def _token_hash_vector(token: str, dimensions: int) -> list[float]:
+    """A deterministic pseudo-random vector for one token (hash-expansion)."""
     digest = b""
     counter = 0
     while len(digest) < dimensions * 4:
-        digest += hashlib.sha256(f"{counter}:{text}".encode()).digest()
+        digest += hashlib.sha256(f"token:{counter}:{token}".encode()).digest()
         counter += 1
     values = struct.unpack(f"<{dimensions}I", digest[: dimensions * 4])
-    scaled = [value / 4294967295.0 * 2.0 - 1.0 for value in values]
-    norm = math.sqrt(sum(value * value for value in scaled))
-    if norm == 0.0:  # practically impossible, but keep the contract
-        return [1.0] + [0.0] * (dimensions - 1)
-    return [value / norm for value in scaled]
+    return [value / 4294967295.0 * 2.0 - 1.0 for value in values]
 
 
 # One model instance per (model, cache dir) per process: workers load once.
