@@ -2,24 +2,32 @@
 
 import httpx
 import pytest
+from django.conf import settings
 
 from apps.common.ai.llm import (
     AnthropicLLMProvider,
     FakeLLMProvider,
-    LLMResult,
     LLMPermanentError,
+    LLMResult,
     LLMTransientError,
     OpenAICompatibleLLMProvider,
     get_llm_provider,
 )
-from django.conf import settings
 
 
 def test_fake_provider_echoes_context():
     provider = FakeLLMProvider()
     result = provider.generate(
         system="You are helpful.",
-        messages=[{"role": "user", "content": "=== CONTEXT START ===\n[1] (Doc) Hello world\n=== CONTEXT END ===\n\nQuestion: What does it say?"}],
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "=== CONTEXT START ===\n[1] (Doc) Hello world\n=== CONTEXT END ===\n\n"
+                    "Question: What does it say?"
+                ),
+            }
+        ],
     )
     assert isinstance(result, LLMResult)
     assert "Based on the provided context [1]:" in result.text
@@ -56,8 +64,9 @@ def test_fake_provider_custom_model():
 def test_openai_provider_success_restores_order():
     def handler(request):
         import json
+
         payload = json.loads(request.content)
-        data = [
+        [
             {"index": i, "embedding": [float(i), 1.0]}
             for i in reversed(range(len(payload["messages"]) - 1))
         ]
@@ -257,12 +266,12 @@ def test_openai_provider_empty_base_url_defaults():
     """The factory function handles empty base_url, not the constructor directly."""
     # This test verifies the factory behavior, not the constructor
     from apps.common.ai.llm import get_llm_provider
-    from django.conf import settings
+
     settings.LLM_PROVIDER = "openai"
     settings.LLM_API_KEY = "test-key"
     settings.LLM_MODEL = "gpt-4o-mini"
     settings.LLM_BASE_URL = ""
-    
+
     provider = get_llm_provider()
     assert "api.openai.com/v1" in str(provider._client.base_url)
 
@@ -270,12 +279,12 @@ def test_openai_provider_empty_base_url_defaults():
 def test_anthropic_provider_empty_base_url_defaults():
     """The factory function handles empty base_url, not the constructor directly."""
     from apps.common.ai.llm import get_llm_provider
-    from django.conf import settings
+
     settings.LLM_PROVIDER = "anthropic"
     settings.LLM_API_KEY = "test-key"
     settings.LLM_MODEL = "claude-3-haiku"
     settings.LLM_BASE_URL = ""
-    
+
     provider = get_llm_provider()
     assert "api.anthropic.com" in str(provider._client.base_url)
 

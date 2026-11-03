@@ -2,16 +2,14 @@
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.db import transaction
 
 from apps.chat.models import Conversation, Message
 from apps.chat.services import NO_CONTEXT_ANSWER, SYSTEM_PROMPT, ask_question
 from apps.common.ai.embeddings import FakeEmbeddingProvider
 from apps.common.ai.llm import (
     FakeLLMProvider,
-    LLMResult,
-    LLMTransientError,
     LLMPermanentError,
+    LLMTransientError,
 )
 from apps.documents.models import Chunk, Document
 
@@ -24,7 +22,7 @@ def make_ready_document(owner, title="Doc", chunks_data=None):
     """Create a READY document with embedded chunks."""
     if chunks_data is None:
         chunks_data = ["Default chunk content."]
-    
+
     document = Document.objects.create(
         owner=owner,
         title=title,
@@ -55,14 +53,15 @@ class TestAskQuestionNoContext:
 
         provider = FakeLLMProvider()
         # Patch the provider to track calls
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             assistant = ask_question(user, conversation, "completely different question")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         # LLM should NOT have been called
         assert len(provider.calls) == 0
@@ -75,14 +74,15 @@ class TestAskQuestionNoContext:
         make_ready_document(user, "Doc", ["unrelated"])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            assistant = ask_question(user, conversation, "different question")
+            ask_question(user, conversation, "different question")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         messages = list(conversation.messages.order_by("created_at"))
         assert len(messages) == 2
@@ -96,14 +96,15 @@ class TestAskQuestionNoContext:
         make_ready_document(user, "Doc", ["unrelated"])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             assistant = ask_question(user, conversation, "different question")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         assert assistant.sources == []
 
@@ -116,14 +117,15 @@ class TestAskQuestionWithContext:
         doc = make_ready_document(user, "My Doc", ["The answer is 42."])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             assistant = ask_question(user, conversation, "What is the answer?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         assert assistant.sources
         source = assistant.sources[0]
@@ -136,17 +138,18 @@ class TestAskQuestionWithContext:
     def test_sources_is_json_snapshot_not_fk(self, user):
         """Sources should be a JSON snapshot, not a FK to Chunk."""
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            assistant = ask_question(user, conversation, "What?")
+            assistant = ask_question(user, conversation, "What about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         # Sources is a list of dicts, not a related manager
         assert isinstance(assistant.sources, list)
@@ -154,17 +157,18 @@ class TestAskQuestionWithContext:
 
     def test_saves_model_and_token_counts(self, user):
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         provider = FakeLLMProvider(model="test-model")
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            assistant = ask_question(user, conversation, "What?")
+            assistant = ask_question(user, conversation, "What about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         assert assistant.model == "test-model"
         assert assistant.prompt_tokens is not None
@@ -175,20 +179,21 @@ class TestAskQuestionWithContext:
     def test_llm_called_outside_transaction(self, user):
         """LLM call must happen outside any DB transaction."""
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         # We verify this by ensuring no transaction is open during LLM call
         # The service implementation does this by design - we can check
         # that the messages are only created after LLM returns
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            assistant = ask_question(user, conversation, "What?")
+            assistant = ask_question(user, conversation, "What about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         # If we got here without error, the transaction handling worked
         assert assistant.pk is not None
@@ -202,20 +207,29 @@ class TestAskQuestionHistory:
         make_ready_document(user, "Doc", ["content about apples"])
 
         # Add some history
-        Message.objects.create(conversation=conversation, role=Message.Role.USER, content="First question")
-        Message.objects.create(conversation=conversation, role=Message.Role.ASSISTANT, content="First answer")
-        Message.objects.create(conversation=conversation, role=Message.Role.USER, content="Second question")
-        Message.objects.create(conversation=conversation, role=Message.Role.ASSISTANT, content="Second answer")
+        Message.objects.create(
+            conversation=conversation, role=Message.Role.USER, content="First question"
+        )
+        Message.objects.create(
+            conversation=conversation, role=Message.Role.ASSISTANT, content="First answer"
+        )
+        Message.objects.create(
+            conversation=conversation, role=Message.Role.USER, content="Second question"
+        )
+        Message.objects.create(
+            conversation=conversation, role=Message.Role.ASSISTANT, content="Second answer"
+        )
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            ask_question(user, conversation, "Third question")
+            ask_question(user, conversation, "Third question about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         # Check that history was passed to LLM
         assert len(provider.calls) == 1
@@ -224,14 +238,14 @@ class TestAskQuestionHistory:
         assert len(messages) >= 3
         # History messages should be in chronological order
         user_messages = [m["content"] for m in messages if m["role"] == "user"]
-        assert "First question" in user_messages
-        assert "Second question" in user_messages
-        assert "Third question" in user_messages
+        assert any("First question" in message for message in user_messages)
+        assert any("Second question" in message for message in user_messages)
+        assert any("Third question" in message for message in user_messages)
 
     def test_respects_chat_history_messages_setting(self, user, settings):
         settings.CHAT_HISTORY_MESSAGES = 2
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         # Add 4 messages (2 pairs)
         for i in range(4):
@@ -242,19 +256,21 @@ class TestAskQuestionHistory:
             )
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            ask_question(user, conversation, "New question")
+            ask_question(user, conversation, "New question about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         messages = provider.calls[0]["messages"]
-        # Should only include last 2 messages + current question
+        # The window is the last 2 messages: one of them is the assistant reply,
+        # so only one historical user message + the current prompt remain.
         user_msgs = [m["content"] for m in messages if m["role"] == "user"]
-        assert len(user_msgs) == 3  # 2 from history + 1 current
+        assert len(user_msgs) == 2  # 1 from history + 1 current
 
 
 class TestAskQuestionSystemPrompt:
@@ -262,17 +278,18 @@ class TestAskQuestionSystemPrompt:
 
     def test_system_prompt_passed_to_llm(self, user):
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            ask_question(user, conversation, "What?")
+            ask_question(user, conversation, "What about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         assert provider.calls[0]["system"] == SYSTEM_PROMPT
 
@@ -291,61 +308,64 @@ class TestAskQuestionErrorHandling:
 
     def test_transient_error_raises_llmtransient(self, user):
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         class TransientProvider(FakeLLMProvider):
             def generate(self, system, messages):
                 raise LLMTransientError("Service unavailable")
 
         provider = TransientProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             with pytest.raises(LLMTransientError):
-                ask_question(user, conversation, "What?")
+                ask_question(user, conversation, "What about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
     def test_permanent_error_raises_llmpermanent(self, user):
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         class PermanentProvider(FakeLLMProvider):
             def generate(self, system, messages):
                 raise LLMPermanentError("Bad request")
 
         provider = PermanentProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             with pytest.raises(LLMPermanentError):
-                ask_question(user, conversation, "What?")
+                ask_question(user, conversation, "What about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
     def test_no_messages_saved_on_llm_error(self, user):
         """If LLM fails, no messages should be persisted."""
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         class FailingProvider(FakeLLMProvider):
             def generate(self, system, messages):
                 raise LLMTransientError("Service unavailable")
 
         provider = FailingProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             with pytest.raises(LLMTransientError):
-                ask_question(user, conversation, "What?")
+                ask_question(user, conversation, "What about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         # No messages should exist
         assert conversation.messages.count() == 0
@@ -356,35 +376,37 @@ class TestAskQuestionTitleAutoSet:
 
     def test_first_question_sets_title(self, user):
         conversation = Conversation.objects.create(owner=user, title="")
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             ask_question(user, conversation, "This is my first question about something")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         conversation.refresh_from_db()
         assert conversation.title == "This is my first question about something"
 
     def test_title_truncated_to_60_chars(self, user):
         conversation = Conversation.objects.create(owner=user, title="")
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         long_question = "A" * 100
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             ask_question(user, conversation, long_question)
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         conversation.refresh_from_db()
         assert len(conversation.title) == 60
@@ -392,17 +414,18 @@ class TestAskQuestionTitleAutoSet:
 
     def test_existing_title_not_overwritten(self, user):
         conversation = Conversation.objects.create(owner=user, title="Existing Title")
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            ask_question(user, conversation, "New question")
+            ask_question(user, conversation, "New question about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         conversation.refresh_from_db()
         assert conversation.title == "Existing Title"
@@ -414,17 +437,18 @@ class TestAskQuestionDocumentIdsFilter:
     def test_filters_to_specified_documents(self, user):
         conversation = Conversation.objects.create(owner=user)
         doc1 = make_ready_document(user, "Doc 1", ["apple content"])
-        doc2 = make_ready_document(user, "Doc 2", ["banana content"])
+        make_ready_document(user, "Doc 2", ["banana content"])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
             assistant = ask_question(user, conversation, "apple", document_ids=[doc1.id])
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         # Should only find content from doc1
         assert "apple" in assistant.content.lower() or len(assistant.sources) == 1
@@ -438,17 +462,18 @@ class TestAskQuestionConcurrency:
     def test_atomic_message_creation(self, user):
         """User + assistant messages created atomically."""
         conversation = Conversation.objects.create(owner=user)
-        make_ready_document(user, "Doc", ["content"])
+        make_ready_document(user, "Doc", ["content about apples"])
 
         provider = FakeLLMProvider()
-        from apps.common.ai import llm
-        original_get = llm.get_llm_provider
-        llm.get_llm_provider = lambda: provider
+        from apps.chat import services as chat_services
+
+        original_get = chat_services.get_llm_provider
+        chat_services.get_llm_provider = lambda: provider
 
         try:
-            ask_question(user, conversation, "What?")
+            ask_question(user, conversation, "What about apples?")
         finally:
-            llm.get_llm_provider = original_get
+            chat_services.get_llm_provider = original_get
 
         messages = list(conversation.messages.order_by("created_at"))
         assert len(messages) == 2
