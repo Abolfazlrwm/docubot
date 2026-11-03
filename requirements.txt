@@ -12,6 +12,7 @@ pgvector>=0.3,<1.0
 pypdf>=5.0,<7.0
 fastembed>=0.4,<2.0
 httpx>=0.27,<1.0
+whitenoise>=6.8
 
 # Development / testing
 ruff>=0.8
