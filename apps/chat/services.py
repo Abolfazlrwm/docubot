@@ -1,11 +1,14 @@
-"""RAG orchestration: retrieve -> prompt -> LLM -> persist."""
+"""RAG orchestration: retrieve -> prompt -> LLM -> persist (JSON and SSE streaming)."""
+
+import json
+from collections.abc import Iterator
 
 from django.conf import settings
 from django.db import transaction
 
 from apps.chat.models import Conversation, Message
 from apps.chat.retrieval import RetrievedChunk, retrieve
-from apps.common.ai.llm import get_llm_provider
+from apps.common.ai.llm import LLMError, get_llm_provider
 
 NO_CONTEXT_ANSWER = "I could not find relevant information in your documents."
 
@@ -70,14 +73,117 @@ def ask_question(
     return assistant
 
 
+def stream_answer(
+    user,
+    conversation: Conversation,
+    question: str,
+    *,
+    document_ids: list[int] | None = None,
+) -> Iterator[str]:
+    """Yield Server-Sent Events for one RAG turn; persist the turn at the end.
+
+    Event protocol (JSON payloads, one event per blank-line-separated block):
+      event: sources  data: {"sources": [...]}        # numbered, matches [1]..[n]
+      event: delta    data: {"text": "..."}           # repeated, in order
+      event: done     data: {"message_id": ..., ...}  # turn persisted
+      event: error    data: {"detail": "..."}         # LLM failure; nothing persisted
+    A client disconnect still persists the tokens received so far (GeneratorExit).
+    """
+    results = retrieve(user, question, document_ids=document_ids)
+
+    if not results:
+        with transaction.atomic():
+            _save_user_message(conversation, question)
+            assistant = Message.objects.create(
+                conversation=conversation,
+                role=Message.Role.ASSISTANT,
+                content=NO_CONTEXT_ANSWER,
+                sources=[],
+                model="",
+            )
+            _touch_conversation(conversation, question)
+        yield _sse(
+            "done",
+            {
+                "content": NO_CONTEXT_ANSWER,
+                "message_id": assistant.pk,
+                "conversation_id": conversation.pk,
+                "model": "",
+                "sources": [],
+            },
+        )
+        return
+
+    sources = [_source_snapshot(retrieved) for retrieved in results]
+    yield _sse("sources", {"sources": sources})
+
+    history = _conversation_history(conversation)
+    meta: dict = {"model": "", "prompt_tokens": None, "completion_tokens": None}
+    collected: list[str] = []
+    persisted = False
+
+    def _persist() -> Message:
+        text = "".join(collected)
+        with transaction.atomic():
+            _save_user_message(conversation, question)
+            return Message.objects.create(
+                conversation=conversation,
+                role=Message.Role.ASSISTANT,
+                content=text,
+                sources=sources,
+                model=meta["model"],
+                prompt_tokens=meta["prompt_tokens"],
+                completion_tokens=meta["completion_tokens"],
+            )
+
+    try:
+        for delta in get_llm_provider().generate_stream(
+            system=SYSTEM_PROMPT,
+            messages=[
+                *history,
+                {"role": "user", "content": _build_user_prompt(question, results)},
+            ],
+            meta=meta,
+        ):
+            collected.append(delta)
+            yield _sse("delta", {"text": delta})
+    except LLMError as exc:
+        yield _sse("error", {"detail": str(exc)})
+        return
+    except GeneratorExit:
+        # Client went away mid-answer: keep what was already shown.
+        if collected and not persisted:
+            _persist()
+            _touch_conversation(conversation, question)
+        raise
+
+    assistant = _persist()
+    _touch_conversation(conversation, question)
+    persisted = True
+    yield _sse(
+        "done",
+        {
+            "content": "".join(collected),
+            "message_id": assistant.pk,
+            "conversation_id": conversation.pk,
+            "model": meta["model"],
+            "prompt_tokens": meta["prompt_tokens"],
+            "completion_tokens": meta["completion_tokens"],
+            "sources": sources,
+        },
+    )
+
+
+def _sse(event: str, payload: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
 def _conversation_history(conversation: Conversation) -> list[dict]:
     """The last CHAT_HISTORY_MESSAGES messages, chronological."""
     messages = list(
         conversation.messages.order_by("-created_at", "-id")[: settings.CHAT_HISTORY_MESSAGES]
     )
-    return [
-        {"role": message.role, "content": message.content} for message in reversed(messages)
-    ]
+    return [{"role": message.role, "content": message.content} for message in reversed(messages)]
 
 
 def _build_user_prompt(question: str, results: list[RetrievedChunk]) -> str:
@@ -86,12 +192,7 @@ def _build_user_prompt(question: str, results: list[RetrievedChunk]) -> str:
         for index, result in enumerate(results, start=1)
     ]
     context = "\n\n".join(blocks)
-    return (
-        "=== CONTEXT START ===\n"
-        f"{context}\n"
-        "=== CONTEXT END ===\n\n"
-        f"Question: {question}"
-    )
+    return f"=== CONTEXT START ===\n{context}\n=== CONTEXT END ===\n\nQuestion: {question}"
 
 
 def _source_snapshot(result: RetrievedChunk) -> dict:
