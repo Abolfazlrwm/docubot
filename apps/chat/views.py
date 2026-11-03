@@ -59,9 +59,17 @@ class ConversationViewSet(
     serializer_class = ConversationSerializer
 
     def get_queryset(self):
-        return Conversation.objects.filter(owner=self.request.user).annotate(
-            message_count=Count("messages")
+        # The Count annotation disables Meta.ordering, so order explicitly:
+        # stable pagination and least-recently-active conversations sink.
+        return (
+            Conversation.objects.filter(owner=self.request.user)
+            .annotate(message_count=Count("messages"))
+            .order_by("-updated_at", "-id")
         )
+
+    def perform_create(self, serializer):
+        # The owner always comes from the authenticated request, never the payload.
+        serializer.save(owner=self.request.user)
 
 
 @extend_schema_view(
