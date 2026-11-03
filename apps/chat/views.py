@@ -1,8 +1,10 @@
 from django.db.models import Count
+from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, mixins, status, viewsets
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from apps.chat import retrieval, services
@@ -15,6 +17,7 @@ from apps.chat.serializers import (
     SearchResultSerializer,
 )
 from apps.common.ai.llm import LLMPermanentError, LLMTransientError
+from apps.common.throttling import WriteMethodsRateThrottle
 
 
 class SearchView(APIView):
