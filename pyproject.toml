@@ -1,0 +1,47 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+# Persian/Arabic punctuation used by the chunker is intentional, not a typo.
+allowed-confusables = ["؟", "۔", "؛"]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "DJ",  # flake8-django
+    "SIM", # flake8-simplify
+    "T20", # no print statements
+    "RUF", # ruff-specific rules
+]
+ignore = [
+    # Django's Model.Meta and DRF views intentionally declare mutable
+    # class-level attributes (ordering, indexes, filterset_fields, ...).
+    "RUF012",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "config", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"config/settings/*" = ["F403", "F405"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings.dev"
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+addopts = "--cov=apps --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["apps"]
+omit = ["apps/*/migrations/*"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true

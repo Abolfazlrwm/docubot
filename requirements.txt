@@ -1,0 +1,21 @@
+# Runtime
+Django>=5.2,<6.0
+djangorestframework>=3.16,<4.0
+djangorestframework-simplejwt>=5.5,<6.0
+django-filter>=25.1
+drf-spectacular>=0.28,<2.0
+psycopg[binary]>=3.2,<4.0
+redis>=5.2,<7.0
+gunicorn>=23.0
+celery[redis]>=5.4,<6.0
+pgvector>=0.3,<1.0
+pypdf>=5.0,<7.0
+fastembed>=0.4,<2.0
+httpx>=0.27,<1.0
+
+# Development / testing
+ruff>=0.8
+pytest>=8.3,<9.0
+pytest-django>=4.11,<5.0
+pytest-cov>=6.0
+factory-boy>=3.3,<4.0
