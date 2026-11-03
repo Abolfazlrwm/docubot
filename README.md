@@ -1,115 +1,245 @@
-# DocuChat
+# 🤖 DocuBot
 
-A Django REST backend for a RAG knowledge-base application: authenticated users upload
-documents (PDF/TXT) that are processed in the background — text extraction, chunking
-and embedding — and stored as vectors in Postgres (pgvector), ready for retrieval.
-Chat/Q&A over the documents arrives in a later phase.
+**A production-grade RAG knowledge-base backend — upload documents, get streaming answers with citations.**
 
-## Stack
+DocuBot is a Django REST backend that turns uploaded PDFs and text files into a
+searchable knowledge base. Documents are processed asynchronously (extract →
+chunk → embed), stored as vectors in PostgreSQL with **pgvector**, and answered
+over with a **streaming (SSE) RAG chat** that cites its sources. A zero-build
+**demo UI** ships in the box so you can watch it work.
 
-- Django 5 + Django REST Framework
-- PostgreSQL (pgvector) for documents, chunks and embedding vectors
-- Redis: cache, Celery broker and results
-- Celery worker: async processing pipeline
-- SimpleJWT (access 30 min / refresh 7 days, rotation + blacklist)
-- fastembed (ONNX) local multilingual embeddings — `paraphrase-multilingual-MiniLM-L12-v2` (384 dims, supports Persian)
-- django-filter, drf-spectacular (OpenAPI 3 + Swagger UI)
-- pytest / pytest-django / factory-boy / pytest-cov, ruff
+![CI](https://github.com/Abolfazlrwm/docubot/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.12-blue.svg)
+![Django](https://img.shields.io/badge/django-5.2-092E20.svg)
+![Postgres](https://img.shields.io/badge/postgres-16%20%2B%20pgvector-336791.svg)
+![Coverage](https://img.shields.io/badge/coverage-%E2%89%A585%25-brightgreen.svg)
+![Code style](https://img.shields.io/badge/code%20style-ruff-261230.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)
 
-## Architecture: upload → Celery → embed
+| Chat with streaming answers and citations | Document library with live processing status |
+| --- | --- |
+| ![Chat demo](docs/assets/demo-chat.png) | ![Library demo](docs/assets/demo-library.png) |
+
+## Why this project is different
+
+Most RAG demos stop at a notebook. DocuBot is the parts that come *after* the
+notebook, done properly:
+
+- **Idempotent async pipeline.** Upload → Celery → extract → chunk → embed, with
+  `acks_late`, a claim step, stale-claim recovery and retry/backoff — a crashed
+  worker loses nothing, and re-running a task never duplicates chunks.
+- **Multi-tenant by construction.** Every queryset and the vector search itself
+  are owner-scoped in SQL; another user's id 404s like a nonexistent one.
+- **Real vector search.** pgvector + HNSW index, cosine distance, and adaptive
+  settings for filtered scans (`iterative_scan` on pgvector ≥ 0.8, tuned
+  `ef_search` otherwise).
+- **Streaming answers.** `POST /messages/stream/` emits Server-Sent Events —
+  `sources`, then `delta` tokens, then `done` — while still persisting the turn.
+- **Provider-agnostic AI layer.** Embeddings and LLMs sit behind small
+  abstractions with three implementations each (local/fastembed, any
+  OpenAI-compatible endpoint, Anthropic) plus deterministic fakes that let the
+  whole system run offline with zero API keys.
+- **Hardened edges.** Scoped rate limits on auth/chat/search/uploads, JWT with
+  rotation + blacklist, content-based upload validation, prompt-injection
+  mitigation and enforced source citations.
+- **243 tests, ≥ 85% coverage gate, ruff-clean** — and CI that runs the suite
+  against a real pgvector/Redis service.
+
+## Architecture
 
 ```
-POST /api/v1/documents/          worker (celery)                Postgres (pgvector)
-      │                                │                              │
-      ├─ validate + store file         │                              │
-      ├─ Document(status=pending)      │                              │
-      └─ on_commit ── enqueue ───────► receive task                   │
-                                       ├─ claim: pending→processing   │
-                                       ├─ extract text (pypdf/UTF-8)  │
-                                       ├─ chunk (1000 chars, 200 overlap)
-                                       ├─ embed (fastembed, batches of 32)
-                                       └─ delete old chunks + bulk_create
-                                          status=ready ─────────────► Chunk(embedding vector(384))
-                                          (permanent error → failed + message)
-                                          (transient error → retry ×3, backoff+jitter)
+                        ┌──────────────────────────────────────────────────────┐
+                        │                    Docker network                    │
+   upload (PDF/TXT)     │   ┌───────┐  enqueue   ┌────────┐   extract/chunk     │
+┌───────────────┐  POST │   │ Redis │◄───────────┤  Celery├───┐ embed (fastembed)│
+│      web      ├───────┼──►│ broker│            │ worker │   │ ▼                │
+│ Django + DRF  │       │   └───────┘            └────────┘   │ PostgreSQL 16    │
+│  - JWT auth   │  ask  │   ┌───────┐   cache                  │ - documents      │
+│  - rate limit ├───────┼──►│ cache │◄─────────────────────────┤ - chunks         │
+│  - SSE stream │       │   └───────┘                          │   vector(384)    │
+└───────────────┘       │                                      │   + HNSW index   │
+   /demo/ UI            │                                      └──────────────────┘
+                        └──────────────────────────────────────────────────────┘
 ```
 
-- Documents with no extractable text (e.g. scanned PDFs) end `failed` with a clear message.
-- `POST /documents/{id}/reprocess/` re-queues a failed document.
-- Running the task twice never duplicates chunks (unique `(document, chunk_index)` + delete-then-create in one transaction).
-- Late acks (`acks_late=True`, prefetch=1): a crashed worker loses no task; the idempotent
-  claim step makes re-delivery safe.
+**Document pipeline:** `pending → processing → ready | failed`, with
+`POST /documents/{id}/reprocess/` for failed docs (e.g. scanned PDFs with no
+extractable text). Late-ack Celery tasks + an idempotent claim step make
+re-delivery safe; permanent vs transient errors decide retry vs fail.
+
+**RAG turn:** retrieve top-k owner-scoped chunks by cosine similarity → numbered
+context blocks → LLM with a citation + anti-injection system prompt → answer
+with a `sources` snapshot (chunk content is snapshotted into JSON so chat
+history survives document deletion/reprocessing).
+
+Deep dive: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Quickstart
 
 ```bash
+git clone https://github.com/Abolfazlrwm/docubot && cd docubot
 cp .env.example .env
 docker compose up -d --build
 docker compose exec web python manage.py migrate
 ```
 
-The API is at http://localhost:8000/api/v1/ , interactive docs at
-http://localhost:8000/api/docs/ . The first processed document downloads the embedding
-model (~220 MB) into the `model_cache` volume; later runs load it from cache.
+Then open:
 
-## API endpoints
+| URL | What it is |
+| --- | --- |
+| http://localhost:8000/demo/ | **Demo UI** — register, upload, chat |
+| http://localhost:8000/api/docs/ | Swagger UI (OpenAPI 3) |
+| http://localhost:8000/api/v1/health/ | Service health JSON |
 
-| Method | Path                             | Auth   | Description                                            |
-| ------ | -------------------------------- | ------ | ------------------------------------------------------ |
-| POST   | `/api/v1/auth/register/`         | public | Register (username, email, password)                   |
-| POST   | `/api/v1/auth/login/`            | public | Obtain access/refresh JWT pair                         |
-| POST   | `/api/v1/auth/refresh/`          | public | Refresh access token (rotates refresh token)           |
-| GET    | `/api/v1/auth/me/`               | JWT    | Current authenticated user                             |
-| POST   | `/api/v1/documents/`             | JWT    | Upload a document (multipart `file`, optional `title`) |
-| GET    | `/api/v1/documents/`             | JWT    | List my documents (paginated, page size 20)            |
-| GET    | `/api/v1/documents/{id}/`        | JWT    | Retrieve one of my documents (incl. `chunk_count`)     |
-| DELETE | `/api/v1/documents/{id}/`        | JWT    | Delete a document (DB row + stored file)               |
-| POST   | `/api/v1/documents/{id}/reprocess/` | JWT | Re-queue processing of a **failed** document (409 otherwise) |
+> **Offline demo mode:** set `EMBEDDING_PROVIDER=fake` and `LLM_PROVIDER=fake`
+> in `.env` to skip the ~220 MB embedding model download and any API keys.
+> The default (`EMBEDDING_PROVIDER=local`) downloads the multilingual MiniLM
+> model into the `model_cache` volume on first document — it supports Persian.
 
-Document list supports `?status=pending|processing|ready|failed`, `?search=<title>`,
-`?ordering=created_at|title|size_bytes` (prefix `-` for descending).
+### Run it with real models
 
-Upload rules: only `.pdf` and `.txt`, max 10 MB (`MAX_UPLOAD_SIZE`), PDFs must start
-with the `%PDF-` magic bytes, TXT must be valid UTF-8. Files are stored under
-`media/documents/<user_id>/`; the storage path is never exposed and there is no
-download endpoint.
+Any OpenAI-compatible endpoint works (OpenAI, Azure OpenAI, Ollama, vLLM,
+OpenRouter, …):
 
-## Environment variables
+```bash
+# .env
+LLM_PROVIDER=openai
+LLM_BASE_URL=https://api.openai.com/v1   # or http://host:11434/v1 for Ollama
+LLM_API_KEY=sk-...
+LLM_MODEL=gpt-4o-mini
+
+LLM_PROVIDER=anthropic          # or Anthropic directly
+LLM_API_KEY=sk-ant-...
+LLM_MODEL=claude-3-5-haiku-latest
+```
+
+## API tour
+
+```bash
+# Register + login
+curl -s -X POST localhost:8000/api/v1/auth/register/ -H 'Content-Type: application/json' \
+  -d '{"username":"amy","email":"amy@example.com","password":"correct-horse-42"}'
+TOKEN=$(curl -s -X POST localhost:8000/api/v1/auth/login/ -H 'Content-Type: application/json' \
+  -d '{"username":"amy","password":"correct-horse-42"}' | jq -r .access)
+
+# Upload a document (validated, processed in the background)
+curl -s -X POST localhost:8000/api/v1/documents/ -H "Authorization: Bearer $TOKEN" \
+  -F file=@handbook.pdf
+
+# Watch processing status: pending → processing → ready
+curl -s localhost:8000/api/v1/documents/ -H "Authorization: Bearer $TOKEN" | jq '.results[0]'
+
+# Semantic search over your own documents
+curl -s -X POST localhost:8000/api/v1/search/ -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"query":"vacation policy","top_k":3}' | jq
+
+# Chat over the knowledge base
+CONV=$(curl -s -X POST localhost:8000/api/v1/conversations/ \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{}' | jq -r .id)
+curl -s -X POST localhost:8000/api/v1/conversations/$CONV/messages/ \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"content":"How many vacation days do I have?"}' | jq
+
+# Or stream the answer token-by-token (Server-Sent Events)
+curl -N -X POST localhost:8000/api/v1/conversations/$CONV/messages/stream/ \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"content":"How many vacation days do I have?"}'
+```
+
+The stream emits: `event: sources` (numbered context blocks) → repeated
+`event: delta` (answer tokens) → `event: done` (persisted message id + token
+usage). LLM failures surface as `event: error` and persist nothing.
+
+### Endpoint map
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/v1/auth/register/` | public | Register (rate-limited) |
+| POST | `/api/v1/auth/login/` | public | JWT access + refresh pair |
+| POST | `/api/v1/auth/refresh/` | public | Rotate refresh token |
+| GET | `/api/v1/auth/me/` | JWT | Current user |
+| POST | `/api/v1/documents/` | JWT | Upload PDF/TXT (max 10 MB, content-validated) |
+| GET | `/api/v1/documents/` | JWT | List mine (`?status=`, `?search=`, `?ordering=`) |
+| GET | `/api/v1/documents/{id}/` | JWT | Retrieve one (incl. `chunk_count`) |
+| DELETE | `/api/v1/documents/{id}/` | JWT | Delete row + stored file |
+| POST | `/api/v1/documents/{id}/reprocess/` | JWT | Re-queue a **failed** document (409 otherwise) |
+| POST | `/api/v1/search/` | JWT | Semantic search with score cutoff |
+| GET/POST | `/api/v1/conversations/` | JWT | List / create conversations |
+| GET/DELETE | `/api/v1/conversations/{id}/` | JWT | Retrieve / delete a conversation |
+| GET | `/api/v1/conversations/{id}/messages/` | JWT | Chronological history (paginated) |
+| POST | `/api/v1/conversations/{id}/messages/` | JWT | Ask a question → JSON answer + sources |
+| POST | `/api/v1/conversations/{id}/messages/stream/` | JWT | Ask → **SSE stream** |
+| GET | `/api/v1/health/` | public | DB / cache / Celery status for probes |
+
+## Configuration
+
+Everything is environment-driven (see [`.env.example`](.env.example)):
 
 | Variable | Default | Purpose |
 | -------- | ------- | ------- |
-| `REDIS_URL` | `redis://redis:6379/0` | cache + Celery broker/results |
-| `CELERY_TASK_ALWAYS_EAGER` | `False` | run tasks synchronously (tests) |
-| `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `200` | chunking characters |
-| `EMBEDDING_PROVIDER` | `local` | `local` (fastembed) \| `fake` (deterministic, offline) \| `openai` (HTTP) |
-| `EMBEDDING_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | fastembed model |
-| `EMBEDDING_DIMENSIONS` | `384` | must match the model |
-| `EMBEDDING_BATCH_SIZE` | `32` | texts per embed call |
-| `EMBEDDING_CACHE_DIR` | `/home/appuser/.cache/fastembed` | mounted model cache volume |
-| `EMBEDDING_API_BASE` / `EMBEDDING_API_KEY` / `EMBEDDING_API_MODEL` | — | only for `openai` provider |
+| `EMBEDDING_PROVIDER` | `local` | `local` (fastembed) \| `fake` (offline) \| `openai` |
+| `EMBEDDING_MODEL` | `paraphrase-multilingual-MiniLM-L12-v2` | 384-dim, multilingual incl. Persian |
+| `LLM_PROVIDER` | `fake` | `fake` \| `openai` (any compatible) \| `anthropic` |
+| `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | — | Provider connection |
+| `CHUNK_SIZE` / `CHUNK_OVERLAP` | `1000` / `200` | Chunking characters (Persian punctuation aware) |
+| `RETRIEVAL_TOP_K` / `RETRIEVAL_MIN_SCORE` | `5` / `0.3` | Vector search tuning |
+| `CHAT_HISTORY_MESSAGES` | `6` | Conversation memory in the RAG prompt |
+| `THROTTLE_AUTH` / `THROTTLE_CHAT` / `THROTTLE_SEARCH` / `THROTTLE_UPLOAD` | `30/min`, `60/min`, `60/min`, `60/hour` | Scoped rate limits |
+| `MAX_UPLOAD_SIZE` | `10485760` | Upload cap in bytes |
+| `CELERY_TASK_ALWAYS_EAGER` | `False` | Run tasks inline (tests) |
 
-## Tests and linting
+## Testing & quality
 
 ```bash
-docker compose exec web pytest        # tests + coverage (fails under 85%)
-docker compose exec web ruff check .
-docker compose exec web ruff format --check .
-docker compose exec web python manage.py makemigrations --check
+docker compose exec web pytest                                  # 243 tests, coverage gate 85%
+docker compose exec web ruff check .                            # lint
+docker compose exec web ruff format --check .                   # format
+docker compose exec web python manage.py makemigrations --check # migrations in sync
 ```
 
-Tests run with `EMBEDDING_PROVIDER=fake` and eager Celery (see `tests/conftest.py`),
-so they need no model download, broker or worker.
+Tests run with `EMBEDDING_PROVIDER=fake`, eager Celery and a LocMem/Redis cache,
+so no model download, broker or worker is needed. CI (GitHub Actions) runs the
+same suite against live `pgvector/pgvector:pg16` and `redis:7` services.
+
+## Production
+
+```bash
+cp .env.example .env     # then set DJANGO_SECRET_KEY, DJANGO_SETTINGS_MODULE=config.settings.prod, POSTGRES_PASSWORD
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Gunicorn + `collectstatic` (WhiteNoise for static files), a hardened worker with
+healthchecks, Docker `HEALTHCHECK` on the web image against `/api/v1/health/`.
+Put a TLS-terminating reverse proxy in front and you are done.
 
 ## Project layout
 
 ```
-config/              project, split settings (base/dev/prod), urls, celery app
-apps/users/          custom User, JWT auth + registration (serializers -> services)
+config/              settings (base/dev/prod), urls, celery app, ASGI/WSGI
+apps/users/          custom User, JWT auth + registration
 apps/documents/      Document + Chunk models, validators, extraction, chunking,
-                     processing services, tasks, API
-apps/common/         shared errors, embedding provider abstraction (fake/local/openai)
-apps/chat/           reserved for a later phase
-tests/               factories, fixtures, pytest suite, minimal PDF builder
+                     processing services, Celery tasks, API
+apps/chat/           conversations, retrieval (pgvector), RAG services, SSE API
+apps/common/         error taxonomy, embedding/LLM provider abstractions,
+                     throttling, health view
+templates/ + static/demo/   the zero-build demo UI
+tests/               243 tests: factories, fixtures, unit + API + N+1 + SSE
+docs/                architecture deep dive, screenshots
 ```
 
-Business logic lives in services and dedicated modules; Celery tasks are thin wrappers.
+## Roadmap
+
+- [ ] DOCX/Markdown ingestion
+- [ ] Hybrid search (BM25 + vectors, reciprocal rank fusion)
+- [ ] OpenAI-compatible streaming for the Fake provider's usage metadata
+- [ ] Per-user API keys + usage quotas
+- [ ] Answer reranking (cross-encoder) behind a feature flag
+
+## Contributing
+
+PRs welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for the setup and the
+checks CI will run. Security issues: [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE) © DocuBot contributors
