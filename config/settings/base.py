@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     # Third-party
+    "django.contrib.postgres",  # FTS search vectors; required by Django 6's postgres checks
     "rest_framework",
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
@@ -190,6 +191,20 @@ RETRIEVAL_MAX_TOP_K = int(os.environ.get("RETRIEVAL_MAX_TOP_K", "20"))
 # Cosine-similarity cutoff (1 - cosine distance); calibrated with the real model.
 RETRIEVAL_MIN_SCORE = float(os.environ.get("RETRIEVAL_MIN_SCORE", "0.3"))
 QUERY_MAX_LENGTH = int(os.environ.get("QUERY_MAX_LENGTH", "2000"))
+
+# Retrieval signals: "vector" (embeddings only), "keyword" (Postgres FTS only)
+# or "hybrid" (both, fused with Reciprocal Rank Fusion).
+#   SEARCH_MODE    -> default for the explicit /api/v1/search/ endpoint
+#   RETRIEVAL_MODE -> default for RAG answers, where recall matters most
+SEARCH_MODE = os.environ.get("SEARCH_MODE", "vector")
+RETRIEVAL_MODE = os.environ.get("RETRIEVAL_MODE", "hybrid")
+# Postgres text-search configuration. "simple" lowercases and splits but does
+# not stem, which behaves uniformly across languages (English and Persian alike).
+FTS_CONFIG = os.environ.get("FTS_CONFIG", "simple")
+# Hybrid retrieval fetches this many candidates per signal before fusing.
+HYBRID_CANDIDATE_MULTIPLIER = int(os.environ.get("HYBRID_CANDIDATE_MULTIPLIER", "3"))
+# RRF constant: dampens the advantage of the very top ranks (standard 60).
+HYBRID_RRF_K = int(os.environ.get("HYBRID_RRF_K", "60"))
 
 # pgvector HNSW tuning. On pgvector >= 0.8.0 iterative scans are enabled inside
 # the retrieval transaction so owner filters can still return enough rows;

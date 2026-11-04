@@ -1,7 +1,10 @@
 import uuid
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVector, SearchVectorField
 from django.db import models
+from django.db.models import GeneratedField
 from pgvector.django import HnswIndex, VectorField
 
 
@@ -69,6 +72,13 @@ class Chunk(models.Model):
     chunk_index = models.PositiveIntegerField()
     content = models.TextField()
     embedding = VectorField(dimensions=settings.EMBEDDING_DIMENSIONS)
+    # Stored generated column: the database keeps this in sync with `content`
+    # on every write, so the keyword signal can never drift from the text.
+    search = GeneratedField(
+        expression=SearchVector("content", config=settings.FTS_CONFIG),
+        output_field=SearchVectorField(),
+        db_persist=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -89,6 +99,8 @@ class Chunk(models.Model):
                 m=16,
                 ef_construction=64,
             ),
+            # Inverted index backing the keyword (FTS) retrieval signal.
+            GinIndex(fields=["search"], name="chunk_search_gin"),
         ]
 
     def __str__(self) -> str:

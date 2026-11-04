@@ -2,12 +2,13 @@ from django.conf import settings
 from rest_framework import serializers
 
 from apps.chat.models import Conversation, Message
-from apps.chat.retrieval import RetrievedChunk
+from apps.chat.retrieval import MODES, RetrievedChunk
 
 
 class SearchRequestSerializer(serializers.Serializer):
     query = serializers.CharField()
     top_k = serializers.IntegerField(required=False, min_value=1)
+    mode = serializers.ChoiceField(choices=MODES, required=False, allow_null=True)
     document_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, allow_empty=True
     )
@@ -36,6 +37,7 @@ class SearchResultSerializer(serializers.Serializer):
     chunk_index = serializers.IntegerField()
     content = serializers.CharField()
     score = serializers.FloatField()
+    match = serializers.ChoiceField(choices=("vector", "keyword", "both"))
 
     def create(self, validated_data):  # pragma: no cover - read-only view
         raise NotImplementedError
@@ -51,6 +53,7 @@ class SearchResultSerializer(serializers.Serializer):
             "chunk_index": retrieved.chunk_index,
             "content": retrieved.content,
             "score": retrieved.score,
+            "match": retrieved.match,
         }
 
 
@@ -80,6 +83,7 @@ class MessageSerializer(serializers.ModelSerializer):
 
 class AskSerializer(serializers.Serializer):
     content = serializers.CharField(max_length=2000)
+    mode = serializers.ChoiceField(choices=MODES, required=False, allow_null=True)
     document_ids = serializers.ListField(
         child=serializers.IntegerField(), required=False, allow_empty=True
     )
