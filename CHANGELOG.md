@@ -4,6 +4,49 @@ All notable changes to DocuBot are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] — 2026-11-05
+
+### Added
+
+- **Hybrid retrieval engine.** A stored `tsvector` generated column + GIN index
+  on chunks adds a Postgres full-text signal alongside the pgvector embeddings;
+  `hybrid_retrieve()` fuses both rankings with **Reciprocal Rank Fusion** (RRF
+  k=60), so chunks found by both signals surface on top. Every retrieval call
+  and endpoint accepts `mode: vector | keyword | hybrid`; RAG answers default
+  to `hybrid` (recall matters most there), the search endpoint to `vector`.
+  All signals stay owner-scoped in SQL; `FTS_CONFIG=simple` keeps behaviour
+  language-neutral (English and Persian alike).
+- **Page-level citations.** Extraction is now page-aware — PDF text is chunked
+  per page and each chunk remembers its `page`. Context blocks carry
+  `(Title, p. N)` markers, `sources` snapshots include the page, and answers
+  return a resolved **`citations`** list: the `[n]` markers the model actually
+  used, deduplicated, in first-mention order, mapped back to document + page.
+  Markers without a real source behind them are silently dropped, so the API
+  can never cite a document that was not in the context.
+- **Follow-up question rewriting.** Before retrieval, conversation follow-ups
+  ("and the second one?") are rewritten into standalone search queries using
+  the recent turns (`QUERY_REWRITE_ENABLED`, `REWRITE_MAX_CHARS`,
+  `QUERY_REWRITE_MAX_HISTORY`). Strictly best effort: first turns skip the LLM
+  entirely, and any rewrite failure falls back to the raw question. The raw
+  question is always what gets stored and displayed.
+- **Answer feedback.** `POST/DELETE /conversations/{id}/messages/{mid}/feedback/`
+  stores thumbs up/down plus an optional comment on assistant messages
+  (owner-scoped, assistant messages only). The demo UI grew 👍/👎 buttons on
+  every answer.
+- Demo UI: source chips now show the page (`Handbook · p. 3`).
+
+### Changed
+
+- Retrieval scoring API: results carry a `match` field (`vector`, `keyword` or
+  `both`) and RRF scores (rounded to 6 decimals) replace raw cosine values in
+  hybrid mode; `page` added to search results and source snapshots.
+- `django.contrib.postgres` is now in `INSTALLED_APPS` (required by the FTS
+  column; also satisfies Django 6's `postgres.E005` check ahead of time).
+- Test suite grew from 243 to **298 tests** (94% coverage): RRF fusion,
+  keyword search, mode plumbing, citation resolution, rewrite behaviour and
+  the feedback endpoint each have dedicated suites; the vector-mode ordering
+  tests now assert exactly what an approximate ANN scan guarantees.
+
 ## [1.1.0] — 2026-11-02
 
 ### Fixed
