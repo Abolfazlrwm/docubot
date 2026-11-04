@@ -42,6 +42,7 @@ class RetrievedChunk:
     content: str
     score: float  # vector mode: cosine similarity in [-1, 1]; keyword mode: FTS rank >= 0
     match: str = VECTOR_MODE  # which signal matched: "vector", "keyword" or "both"
+    page: int | None = None  # 1-based source page; None = chunk predates page tracking
 
 
 @functools.lru_cache(maxsize=1)
@@ -135,6 +136,7 @@ def _vector_search(
                 chunk_index=chunk.chunk_index,
                 content=chunk.content,
                 score=1.0 - chunk.distance,
+                page=chunk.page,
             )
             for chunk in rows
         ]
@@ -171,6 +173,7 @@ def keyword_search(
             content=chunk.content,
             score=chunk.rank,
             match=KEYWORD_MODE,
+            page=chunk.page,
         )
         for chunk in rows
     ]
@@ -197,9 +200,7 @@ def hybrid_retrieve(
     return _rrf_fuse([vector_hits, keyword_hits], top_k=top_k, k=settings.HYBRID_RRF_K)
 
 
-def _rrf_fuse(
-    rankings: list[list[RetrievedChunk]], *, top_k: int, k: int
-) -> list[RetrievedChunk]:
+def _rrf_fuse(rankings: list[list[RetrievedChunk]], *, top_k: int, k: int) -> list[RetrievedChunk]:
     """Reciprocal Rank Fusion over chunk ids; deterministic on ties (by id).
 
     score(chunk) = sum over rankings of 1 / (k + rank), with `k` damping the
