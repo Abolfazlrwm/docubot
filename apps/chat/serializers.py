@@ -81,6 +81,9 @@ class MessageSerializer(serializers.ModelSerializer):
             "content",
             "sources",
             "citations",
+            "rating",
+            "rating_comment",
+            "rated_at",
             "model",
             "prompt_tokens",
             "completion_tokens",
@@ -93,6 +96,19 @@ class MessageSerializer(serializers.ModelSerializer):
         if message.role != Message.Role.ASSISTANT:
             return []
         return extract_citations(message.content, message.sources)
+
+
+class MessageFeedbackSerializer(serializers.Serializer):
+    """Thumbs up/down on an assistant answer, with optional context."""
+
+    rating = serializers.ChoiceField(choices=Message.Rating.choices)
+    comment = serializers.CharField(required=False, allow_blank=True, max_length=1000)
+
+    def create(self, validated_data):  # pragma: no cover - handled by the view
+        raise NotImplementedError
+
+    def update(self, instance, validated_data):  # pragma: no cover - handled by the view
+        raise NotImplementedError
 
 
 class AskSerializer(serializers.Serializer):
