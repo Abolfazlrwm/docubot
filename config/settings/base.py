@@ -226,6 +226,14 @@ LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "1024"))
 # RAG: how many previous conversation messages to include as history.
 CHAT_HISTORY_MESSAGES = int(os.environ.get("CHAT_HISTORY_MESSAGES", "6"))
 
+# Rewrite a follow-up question into a standalone search query before retrieval
+# ("and the second one?" -> "second quarter revenue 2025"). Best effort: any
+# LLM failure falls back to the raw question, so answers never block on it.
+QUERY_REWRITE_ENABLED = _env_bool("QUERY_REWRITE_ENABLED", default=True)
+REWRITE_MAX_CHARS = int(os.environ.get("REWRITE_MAX_CHARS", "400"))
+# How many recent messages the rewriter may look at to resolve pronouns.
+QUERY_REWRITE_MAX_HISTORY = int(os.environ.get("QUERY_REWRITE_MAX_HISTORY", "6"))
+
 # Streaming answers (Server-Sent Events): how often to flush the Fake provider's
 # output and the idle timeout for the OpenAI-compatible stream reader.
 STREAM_CHUNK_SIZE = int(os.environ.get("STREAM_CHUNK_SIZE", "24"))

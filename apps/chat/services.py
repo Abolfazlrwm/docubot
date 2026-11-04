@@ -1,4 +1,4 @@
-"""RAG orchestration: retrieve -> prompt -> LLM -> persist (JSON and SSE streaming)."""
+"""RAG orchestration: rewrite -> retrieve -> prompt -> LLM -> persist (JSON and SSE streaming)."""
 
 import json
 import re
@@ -9,6 +9,7 @@ from django.db import transaction
 
 from apps.chat.models import Conversation, Message
 from apps.chat.retrieval import RetrievedChunk, retrieve
+from apps.chat.rewrite import rewrite_question
 from apps.common.ai.llm import LLMError, get_llm_provider
 
 NO_CONTEXT_ANSWER = "I could not find relevant information in your documents."
@@ -65,7 +66,14 @@ def ask_question(
     DB transaction (or a row lock) open. Messages are only persisted once the
     answer exists, in a single transaction.
     """
-    results = retrieve(user, question, document_ids=document_ids, mode=mode)
+    # Follow-ups are rewritten into a standalone query for retrieval; the raw
+    # question is what gets stored and shown to the user.
+    results = retrieve(
+        user,
+        rewrite_question(conversation, question),
+        document_ids=document_ids,
+        mode=mode,
+    )
 
     if not results:
         with transaction.atomic():
@@ -121,7 +129,12 @@ def stream_answer(
       event: error    data: {"detail": "..."}         # LLM failure; nothing persisted
     A client disconnect still persists the tokens received so far (GeneratorExit).
     """
-    results = retrieve(user, question, document_ids=document_ids, mode=mode)
+    results = retrieve(
+        user,
+        rewrite_question(conversation, question),
+        document_ids=document_ids,
+        mode=mode,
+    )
 
     if not results:
         with transaction.atomic():
