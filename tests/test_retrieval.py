@@ -3,7 +3,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 
-from apps.chat.retrieval import retrieve
+from apps.chat.retrieval import _pgvector_version, retrieve
 from apps.common.ai.embeddings import FakeEmbeddingProvider
 from apps.documents.models import Chunk, Document
 
@@ -250,10 +250,13 @@ class TestRetrieveNoNPlusOne:
         make_document_with_chunks(user, "Doc", [f"chunk number {i} content" for i in range(10)])
         retrieve(user, "content")  # warm the lru-cached pgvector version lookup
 
-        # Bounded by 4 regardless of the 10 chunks (savepoint + release, hnsw
-        # GUC, and the single SELECT with select_related) — proof there is no
-        # per-chunk N+1.
-        with django_assert_max_num_queries(4):
+        # Bounded regardless of the 10 chunks — proof there is no per-chunk
+        # N+1. Fixed budget: savepoint + release around the atomic block, one
+        # SET LOCAL per HNSW tuning knob (pgvector >= 0.8 exposes two knobs,
+        # iterative_scan + max_scan_tuples; older versions only ef_search) and
+        # the single SELECT with select_related.
+        gucs = 2 if _pgvector_version() >= (0, 8) else 1
+        with django_assert_max_num_queries(2 + gucs + 1):
             results = retrieve(user, "content")
             # Access document_title to force select_related
             _ = [r.document_title for r in results]
