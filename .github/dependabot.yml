@@ -7,6 +7,12 @@ updates:
     groups:
       python-deps:
         patterns: ["*"]
+    # Major releases (Django 5.2 -> 6.x, pytest 8 -> 9, ...) are deliberate
+    # upgrades that need a reviewed change and fresh migrations; keep them out
+    # of the automatic weekly group.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: "/"
     schedule:
