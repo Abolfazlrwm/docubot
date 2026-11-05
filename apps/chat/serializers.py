@@ -35,6 +35,7 @@ class SearchResultSerializer(serializers.Serializer):
     document_id = serializers.IntegerField()
     document_title = serializers.CharField()
     chunk_index = serializers.IntegerField()
+    page = serializers.IntegerField(allow_null=True)
     content = serializers.CharField()
     score = serializers.FloatField()
     match = serializers.ChoiceField(choices=("vector", "keyword", "both"))
@@ -51,6 +52,7 @@ class SearchResultSerializer(serializers.Serializer):
             "document_id": retrieved.document_id,
             "document_title": retrieved.document_title,
             "chunk_index": retrieved.chunk_index,
+            "page": retrieved.page,
             "content": retrieved.content,
             "score": retrieved.score,
             "match": retrieved.match,

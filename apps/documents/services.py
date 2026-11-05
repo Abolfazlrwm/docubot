@@ -9,7 +9,7 @@ from django.utils import timezone
 from apps.common.ai.embeddings import embed_texts, get_embedding_provider
 from apps.common.exceptions import PermanentProcessingError, TransientProcessingError
 from apps.documents.chunking import chunk_text
-from apps.documents.extraction import extract_text
+from apps.documents.extraction import extract_pages
 from apps.documents.models import Chunk, Document
 from apps.documents.validators import strip_unsafe_basename, validate_document_file
 
@@ -133,18 +133,33 @@ def reprocess_document(document: Document) -> None:
 
 
 def _run_processing_pipeline(document: Document) -> None:
-    text = extract_text(document)
-    chunks = chunk_text(text)
-    if not chunks:
+    pages = extract_pages(document)
+    # Chunk page by page so every chunk can cite the page it came from. A
+    # chunk never spans pages: slightly smaller chunks are the price of exact
+    # page attribution in answers and UI deep links.
+    located = [
+        (page_number, chunk)
+        for page_number, page_text in enumerate(pages, start=1)
+        for chunk in chunk_text(page_text)
+    ]
+    if not located:
         raise PermanentProcessingError("No extractable text found, scanned PDFs are not supported.")
-    vectors = embed_texts(get_embedding_provider(), chunks)
+    vectors = embed_texts(get_embedding_provider(), [content for _, content in located])
     # Replace-and-create in one transaction: re-running can never duplicate
     # chunks, and the unique (document, chunk_index) constraint is the backstop.
     with transaction.atomic():
         document.chunks.all().delete()
         Chunk.objects.bulk_create(
-            Chunk(document=document, chunk_index=index, content=content, embedding=vector)
-            for index, (content, vector) in enumerate(zip(chunks, vectors, strict=True))
+            Chunk(
+                document=document,
+                chunk_index=index,
+                page=page_number,
+                content=content,
+                embedding=vector,
+            )
+            for index, ((page_number, content), vector) in enumerate(
+                zip(located, vectors, strict=True)
+            )
         )
         document.status = Document.Status.READY
         document.error_message = ""

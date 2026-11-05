@@ -30,16 +30,40 @@ def normalize_whitespace(text: str) -> str:
 
 
 def extract_text(document) -> str:
-    """Return normalized text for a Document, or raise PermanentProcessingError."""
+    """Return normalized whole-document text (pages joined with newlines)."""
+    return "\n".join(extract_pages(document))
+
+
+def extract_pages(document) -> list[str]:
+    """Return normalized text per page: one entry per PDF page, one for TXT.
+
+    Page boundaries are what citations and deep links need — chunking runs per
+    page so every chunk can name the page it came from. Blank pages are
+    dropped; a document with no extractable text raises.
+    """
     data = _read_file(document)
     if document.original_filename.lower().endswith(".pdf"):
-        text = _extract_pdf(data)
+        pages = _extract_pdf_pages(data)
     else:
-        text = _decode_utf8(data)
-    text = normalize_whitespace(text)
-    if not text:
+        pages = [_decode_utf8(data)]
+    pages = [page for page in (normalize_whitespace(page) for page in pages) if page]
+    if not pages:
         raise PermanentProcessingError("No extractable text found, scanned PDFs are not supported.")
-    return text
+    return pages
+
+
+def _extract_pdf_pages(data: bytes) -> list[str]:
+    try:
+        reader = PdfReader(io.BytesIO(data))
+        if reader.is_encrypted:
+            raise PermanentProcessingError("The PDF is encrypted and cannot be read.")
+        return [page.extract_text() or "" for page in reader.pages]
+    except PermanentProcessingError:
+        raise
+    except (PdfReadError, ValueError, KeyError, IndexError, EOFError) as exc:
+        # All of these mean pypdf could not parse the bytes: a corrupt file is a
+        # permanent condition, retrying will not help.
+        raise PermanentProcessingError("The PDF is corrupt or unreadable.") from exc
 
 
 def _read_file(document) -> bytes:
@@ -54,17 +78,8 @@ def _read_file(document) -> bytes:
 
 
 def _extract_pdf(data: bytes) -> str:
-    try:
-        reader = PdfReader(io.BytesIO(data))
-        if reader.is_encrypted:
-            raise PermanentProcessingError("The PDF is encrypted and cannot be read.")
-        return "\n".join(page.extract_text() or "" for page in reader.pages)
-    except PermanentProcessingError:
-        raise
-    except (PdfReadError, ValueError, KeyError, IndexError, EOFError) as exc:
-        # All of these mean pypdf could not parse the bytes: a corrupt file is a
-        # permanent condition, retrying will not help.
-        raise PermanentProcessingError("The PDF is corrupt or unreadable.") from exc
+    """Whole-document PDF text (kept for callers that ignore page boundaries)."""
+    return "\n".join(_extract_pdf_pages(data))
 
 
 def _decode_utf8(data: bytes) -> str:

@@ -70,6 +70,9 @@ class Chunk(models.Model):
         related_name="chunks",
     )
     chunk_index = models.PositiveIntegerField()
+    # 1-based source page (PDF page number; TXT files get 1). Null marks chunks
+    # created before page tracking existed — old rows keep working untouched.
+    page = models.PositiveIntegerField(null=True, blank=True)
     content = models.TextField()
     embedding = VectorField(dimensions=settings.EMBEDDING_DIMENSIONS)
     # Stored generated column: the database keeps this in sync with `content`
