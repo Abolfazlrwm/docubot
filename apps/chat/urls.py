@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 
 from apps.chat.views import (
     ConversationViewSet,
+    MessageFeedbackView,
     MessageListCreateView,
     MessageStreamView,
     SearchView,
@@ -25,5 +26,10 @@ urlpatterns = [
         "conversations/<int:conversation_pk>/messages/stream/",
         MessageStreamView.as_view(),
         name="conversation-messages-stream",
+    ),
+    path(
+        "conversations/<int:conversation_pk>/messages/<int:message_pk>/feedback/",
+        MessageFeedbackView.as_view(),
+        name="message-feedback",
     ),
 ]

@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db.models import Count
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import generics, mixins, status, viewsets
 from rest_framework.response import Response
@@ -13,6 +14,7 @@ from apps.chat.models import Conversation, Message
 from apps.chat.serializers import (
     AskSerializer,
     ConversationSerializer,
+    MessageFeedbackSerializer,
     MessageSerializer,
     SearchRequestSerializer,
     SearchResultSerializer,
@@ -137,6 +139,58 @@ class MessageListCreateView(generics.ListCreateAPIView):
         output = MessageSerializer(assistant_message)
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
+@extend_schema(
+    summary="Rate an assistant message (thumbs up/down)",
+    description=(
+        "Attach user feedback to one assistant message: `rating` is `up` or "
+        "`down`, with an optional `comment`. POST again to change the rating, "
+        "DELETE to clear it. Only the conversation owner can rate, and only "
+        "assistant messages accept feedback."
+    ),
+    request=MessageFeedbackSerializer,
+    responses=MessageSerializer,
+    tags=["chat"],
+)
+class MessageFeedbackView(APIView):
+    """POST: set/update the rating; DELETE: clear it."""
+
+    throttle_classes = [WriteMethodsRateThrottle]
+    throttle_scope = "chat"
+
+    def _get_message(self, request, conversation_pk: int, message_pk: int) -> Message:
+        # Owner-scoped: another user's conversation or message 404s like a
+        # nonexistent one.
+        return get_object_or_404(
+            Message,
+            pk=message_pk,
+            conversation_id=conversation_pk,
+            conversation__owner=request.user,
+        )
+
+    def post(self, request, conversation_pk: int, message_pk: int):
+        message = self._get_message(request, conversation_pk, message_pk)
+        if message.role != Message.Role.ASSISTANT:
+            return Response(
+                {"detail": "Only assistant messages can be rated."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = MessageFeedbackSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        message.rating = serializer.validated_data["rating"]
+        message.rating_comment = serializer.validated_data.get("comment", "")
+        message.rated_at = timezone.now()
+        message.save(update_fields=["rating", "rating_comment", "rated_at"])
+        return Response(MessageSerializer(message).data, status=status.HTTP_200_OK)
+
+    def delete(self, request, conversation_pk: int, message_pk: int):
+        message = self._get_message(request, conversation_pk, message_pk)
+        message.rating = ""
+        message.rating_comment = ""
+        message.rated_at = None
+        message.save(update_fields=["rating", "rating_comment", "rated_at"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 @extend_schema(

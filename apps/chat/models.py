@@ -34,6 +34,12 @@ class Message(models.Model):
         USER = "user", "User"
         ASSISTANT = "assistant", "Assistant"
 
+    class Rating(models.TextChoices):
+        """User feedback on an assistant answer."""
+
+        UP = "up", "Up"
+        DOWN = "down", "Down"
+
     conversation = models.ForeignKey(
         Conversation,
         on_delete=models.CASCADE,
@@ -45,6 +51,13 @@ class Message(models.Model):
     model = models.CharField(max_length=100, blank=True, default="")
     prompt_tokens = models.PositiveIntegerField(null=True, blank=True)
     completion_tokens = models.PositiveIntegerField(null=True, blank=True)
+    # Thumbs up/down from the user. Only assistant messages are rateable; the
+    # comment is optional context for why an answer was (not) helpful.
+    rating = models.CharField(
+        max_length=8, choices=Rating.choices, blank=True, default="", db_index=True
+    )
+    rating_comment = models.TextField(blank=True, default="")
+    rated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
