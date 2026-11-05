@@ -196,6 +196,8 @@ async function openConversation(conversation) {
       promptTokens: message.prompt_tokens,
       completionTokens: message.completion_tokens,
       streaming: false,
+      messageId: message.id,
+      rating: message.rating,
     });
   }
 }
@@ -207,7 +209,7 @@ function scrollMessages() {
   box.scrollTop = box.scrollHeight;
 }
 
-function appendMessage(role, content, { sources = [], model = "", promptTokens = null, completionTokens = null, streaming = false } = {}) {
+function appendMessage(role, content, { sources = [], model = "", promptTokens = null, completionTokens = null, streaming = false, messageId = null, rating = null } = {}) {
   const empty = document.querySelector(".empty-state");
   if (empty) empty.remove();
 
@@ -229,9 +231,11 @@ function appendMessage(role, content, { sources = [], model = "", promptTokens =
       const chip = el("span", "source-chip");
       chip.title = `score ${source.score ?? "—"} — ${source.snippet ?? ""}`;
       chip.appendChild(el("span", "n", `[${index + 1}]`));
-      chip.appendChild(el("span", "t", source.document_title || "document"));
+      const label = source.page != null ? `${source.document_title} · p. ${source.page}` : source.document_title;
+      chip.appendChild(el("span", "t", label));
       meta.appendChild(chip);
     });
+    if (messageId) meta.appendChild(buildFeedbackButtons(messageId, rating));
     if (model || promptTokens != null || completionTokens != null) {
       const parts = [model, promptTokens != null ? `${promptTokens}p` : null, completionTokens != null ? `${completionTokens}c` : null]
         .filter(Boolean)
@@ -244,6 +248,54 @@ function appendMessage(role, content, { sources = [], model = "", promptTokens =
   $("messages").appendChild(wrap);
   scrollMessages();
   return bubble;
+}
+
+/* ============ answer feedback (thumbs up/down) ============ */
+
+function buildFeedbackButtons(messageId, initialRating = null) {
+  const row = el("span", "feedback-row");
+  row.dataset.messageId = messageId;
+  let current = initialRating;
+
+  const buttons = {
+    up: el("button", "feedback-btn", "👍"),
+    down: el("button", "feedback-btn", "👎"),
+  };
+  for (const [value, button] of Object.entries(buttons)) {
+    button.type = "button";
+    button.title = value === "up" ? "Helpful answer" : "Not helpful";
+    if (current === value) button.classList.add("active", value);
+    button.addEventListener("click", () => rate(value));
+    row.appendChild(button);
+  }
+
+  async function rate(value) {
+    const clearing = current === value;
+    try {
+      const response = await fetch(
+        `${API}/conversations/${state.activeConversation}/messages/${messageId}/feedback/`,
+        {
+          method: clearing ? "DELETE" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken()}`,
+          },
+          ...(clearing ? {} : { body: JSON.stringify({ rating: value }) }),
+        },
+      );
+      if (response.status === 401 && (await refreshTokens())) return rate(value);
+      if (!response.ok) return;
+      current = clearing ? null : value;
+      for (const [v, b] of Object.entries(buttons)) {
+        b.classList.toggle("active", current === v);
+        b.classList.toggle(v, current === v);
+      }
+    } catch {
+      /* feedback is best effort; never disturb the chat flow */
+    }
+  }
+
+  return row;
 }
 
 /* ============ ask (SSE streaming) ============ */
@@ -316,7 +368,8 @@ async function ask(question) {
           const chip = el("span", "source-chip");
           chip.title = `score ${source.score} — ${source.snippet}`;
           chip.appendChild(el("span", "n", `[${i + 1}]`));
-          chip.appendChild(el("span", "t", source.document_title));
+          const label = source.page != null ? `${source.document_title} · p. ${source.page}` : source.document_title;
+          chip.appendChild(el("span", "t", label));
           meta.appendChild(chip);
         });
         bubble.after(meta);
@@ -334,6 +387,11 @@ async function ask(question) {
         if (lastMeta && parts) {
           lastMeta.dataset.done = "1";
           lastMeta.appendChild(note);
+        }
+        if (payload.message_id && (lastMeta || payload.sources.length)) {
+          const target = lastMeta || (() => { const m = el("div", "bubble-meta"); bubble.after(m); return m; })();
+          target.dataset.done = "1";
+          target.appendChild(buildFeedbackButtons(payload.message_id));
         }
       } else if (name === "error") {
         bubble.classList.remove("streaming");
