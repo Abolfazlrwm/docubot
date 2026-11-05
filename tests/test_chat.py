@@ -402,6 +402,7 @@ class TestMessageSerializer:
             "role",
             "content",
             "sources",
+            "citations",
             "model",
             "prompt_tokens",
             "completion_tokens",

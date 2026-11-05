@@ -69,6 +69,10 @@ class ConversationSerializer(serializers.ModelSerializer):
 
 
 class MessageSerializer(serializers.ModelSerializer):
+    # The sources the answer actually cited, resolved from the [n] markers in
+    # the content — not just everything that was in the context window.
+    citations = serializers.SerializerMethodField()
+
     class Meta:
         model = Message
         fields = (
@@ -76,11 +80,19 @@ class MessageSerializer(serializers.ModelSerializer):
             "role",
             "content",
             "sources",
+            "citations",
             "model",
             "prompt_tokens",
             "completion_tokens",
             "created_at",
         )
+
+    def get_citations(self, message: Message) -> list[dict]:
+        from apps.chat.services import extract_citations  # local import: services imports models
+
+        if message.role != Message.Role.ASSISTANT:
+            return []
+        return extract_citations(message.content, message.sources)
 
 
 class AskSerializer(serializers.Serializer):
