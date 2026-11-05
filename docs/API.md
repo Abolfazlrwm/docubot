@@ -69,17 +69,30 @@ runs on Celery. Poll `status` until it leaves `pending`/`processing`:
 ```bash
 curl -X POST http://localhost:8000/api/v1/search/ \
   -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
-  -d '{"query": "how do I reset my password?", "top_k": 5}'
+  -d '{"query": "clause 14.3.2b", "mode": "hybrid", "top_k": 5}'
 ```
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | `query` | string | required, ≤ `QUERY_MAX_LENGTH` (validated live) |
+| `mode` | string | optional: `vector` (default) \| `keyword` \| `hybrid` |
 | `top_k` | int | optional, 1…`RETRIEVAL_MAX_TOP_K` |
 | `document_ids` | int[] | optional filter |
 
-Response: ranked hits with `document_id`, `document_title`, `chunk_id`,
-`score`, `text`. Only the caller's `ready` documents are ever searched.
+Response: ranked hits with `document_id`, `document_title`, `chunk_index`,
+`page`, `content`, `score`, `match` (`vector`, `keyword` or `both`). Only the
+caller's `ready` documents are ever searched.
+
+**Retrieval modes**
+
+| Mode | Signal | Best for |
+| --- | --- | --- |
+| `vector` | pgvector HNSW, cosine similarity | meaning (“time off rules”) |
+| `keyword` | Postgres FTS over a generated `tsvector` (GIN) | literal terms: error codes, part numbers, names |
+| `hybrid` | both, fused with Reciprocal Rank Fusion (k=60) | default for RAG answers — best recall |
+
+Keyword queries accept websearch syntax: quote phrases (`"vacation policy"`),
+exclude with a minus (`vacation -unpaid`).
 
 ## Chat
 
@@ -90,22 +103,32 @@ Response: ranked hits with `document_id`, `document_title`, `chunk_id`,
 | GET | `/api/v1/conversations/{id}/messages/` | Chronological history |
 | POST | `/api/v1/conversations/{id}/messages/` | Ask a question, get the full answer as JSON |
 | POST | `/api/v1/conversations/{id}/messages/stream/` | Same turn, streamed as **SSE** |
+| POST/DELETE | `/api/v1/conversations/{id}/messages/{mid}/feedback/` | Rate an answer 👍/👎 (or clear) |
 
-JSON turn request: `{ "content": "...", "document_ids": [1, 2] }` (content ≤ 2000
-chars). Response `201`:
+JSON turn request: `{ "content": "...", "mode": "hybrid", "document_ids": [1, 2] }`
+(content ≤ 2000 chars). Response `201`:
 
 ```json
 {
   "id": 42,
   "role": "assistant",
   "content": "Reset it from Settings → Security [1].",
-  "sources": [{"marker": 1, "document_id": 7, "document_title": "Handbook", "snippet": "…"}],
+  "sources": [{"document_id": 7, "document_title": "Handbook", "chunk_index": 3, "page": 12, "score": 0.8123, "snippet": "…"}],
+  "citations": [{"number": 1, "document_id": 7, "document_title": "Handbook", "page": 12, "snippet": "…"}],
+  "rating": "",
+  "rating_comment": "",
+  "rated_at": null,
   "model": "gpt-4o-mini",
   "prompt_tokens": 412,
   "completion_tokens": 38,
-  "created_at": "2026-11-02T10:00:00Z"
+  "created_at": "2026-11-05T10:00:00Z"
 }
 ```
+
+`citations` lists only the sources the answer actually referenced via `[n]`
+markers, in first-mention order, each carrying the source `page` when known.
+Follow-up questions are rewritten into standalone search queries before
+retrieval (raw question is stored; `QUERY_REWRITE_ENABLED=0` disables).
 
 ### Streaming (Server-Sent Events)
 
@@ -113,10 +136,10 @@ chars). Response `201`:
 `Content-Type: text/event-stream` and emits, in order:
 
 ```
-event: sources        data: {"sources": [{"marker": 1, ...}]}   # once, first
+event: sources        data: {"sources": [{"document_id": 7, "page": 12, "snippet": "…"}]}   # once, first
 event: delta          data: {"text": "Reset"}                   # repeated
 event: delta          data: {"text": " it from…"}
-event: done           data: {"message_id": 42, "content": "…", "sources": [...]}
+event: done           data: {"message_id": 42, "content": "…", "sources": [...], "citations": [...]}
 ```
 
 * `done` means the turn is persisted (user + assistant messages).
