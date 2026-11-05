@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db.models import Count
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
@@ -42,6 +43,7 @@ class SearchView(APIView):
             data["query"],
             top_k=data.get("top_k"),
             document_ids=data.get("document_ids"),
+            mode=data.get("mode") or settings.SEARCH_MODE,
         )
         output = SearchResultSerializer(
             [SearchResultSerializer.from_retrieved(result) for result in results], many=True
@@ -119,6 +121,7 @@ class MessageListCreateView(generics.ListCreateAPIView):
                 conversation,
                 input_serializer.validated_data["content"],
                 document_ids=input_serializer.validated_data.get("document_ids"),
+                mode=input_serializer.validated_data.get("mode"),
             )
         except LLMTransientError as exc:
             return Response(
@@ -164,6 +167,7 @@ class MessageStreamView(APIView):
             conversation,
             data["content"],
             document_ids=data.get("document_ids"),
+            mode=data.get("mode"),
         )
         return StreamingHttpResponse(
             generator,

@@ -26,7 +26,12 @@ Rules:
 
 
 def ask_question(
-    user, conversation: Conversation, question: str, *, document_ids: list[int] | None = None
+    user,
+    conversation: Conversation,
+    question: str,
+    *,
+    document_ids: list[int] | None = None,
+    mode: str | None = None,
 ) -> Message:
     """Answer `question` from the user's documents; returns the assistant Message.
 
@@ -34,7 +39,7 @@ def ask_question(
     DB transaction (or a row lock) open. Messages are only persisted once the
     answer exists, in a single transaction.
     """
-    results = retrieve(user, question, document_ids=document_ids)
+    results = retrieve(user, question, document_ids=document_ids, mode=mode)
 
     if not results:
         with transaction.atomic():
@@ -79,6 +84,7 @@ def stream_answer(
     question: str,
     *,
     document_ids: list[int] | None = None,
+    mode: str | None = None,
 ) -> Iterator[str]:
     """Yield Server-Sent Events for one RAG turn; persist the turn at the end.
 
@@ -89,7 +95,7 @@ def stream_answer(
       event: error    data: {"detail": "..."}         # LLM failure; nothing persisted
     A client disconnect still persists the tokens received so far (GeneratorExit).
     """
-    results = retrieve(user, question, document_ids=document_ids)
+    results = retrieve(user, question, document_ids=document_ids, mode=mode)
 
     if not results:
         with transaction.atomic():
