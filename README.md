@@ -15,7 +15,7 @@ clickable `[n]` citations that resolve to document and page. A zero-build
 ![Django](https://img.shields.io/badge/django-5.2-092E20.svg)
 ![Postgres](https://img.shields.io/badge/postgres-16%20%2B%20pgvector-336791.svg)
 ![Tests](https://img.shields.io/badge/tests-298%20passing-brightgreen.svg)
-![Coverage](https://img.shields.io/badge/coverage-94%25-brightgreen.svg)
+[![codecov](https://codecov.io/gh/Abolfazlrwm/docubot/graph/badge.svg)](https://codecov.io/gh/Abolfazlrwm/docubot)
 ![Code style](https://img.shields.io/badge/code%20style-ruff-261230.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)
 
@@ -222,7 +222,7 @@ Everything is environment-driven (see [`.env.example`](.env.example)):
 ## Testing & quality
 
 ```bash
-docker compose exec web pytest                                  # 298 tests, coverage 94%
+docker compose exec web pytest                                  # 298 tests, coverage 94.7%
 docker compose exec web ruff check .                            # lint
 docker compose exec web ruff format --check .                   # format
 docker compose exec web python manage.py makemigrations --check # migrations in sync
