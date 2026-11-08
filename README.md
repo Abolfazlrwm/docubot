@@ -14,7 +14,7 @@ clickable `[n]` citations that resolve to document and page. A zero-build
 ![Python](https://img.shields.io/badge/python-3.12-blue.svg)
 ![Django](https://img.shields.io/badge/django-5.2-092E20.svg)
 ![Postgres](https://img.shields.io/badge/postgres-16%20%2B%20pgvector-336791.svg)
-![Tests](https://img.shields.io/badge/tests-298%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-321%20passing-brightgreen.svg)
 [![codecov](https://codecov.io/gh/Abolfazlrwm/docubot/graph/badge.svg)](https://codecov.io/gh/Abolfazlrwm/docubot)
 ![Code style](https://img.shields.io/badge/code%20style-ruff-261230.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)
@@ -59,7 +59,13 @@ notebook, done properly:
 - **Hardened edges.** Scoped rate limits on auth/chat/search/uploads, JWT with
   rotation + blacklist, content-based upload validation, prompt-injection
   mitigation and enforced source citations.
-- **298 tests, 94% coverage, ruff-clean** — and CI that runs the suite against
+- **API keys for programmatic access.** Personal `dbk_…` keys — hashed,
+  shown once, read/write scoped, revocable, with `last_used_at` tracking —
+  let scripts, CI and integrations call the entire API via `X-API-Key`
+  without JWT rotation. A staff-only `/api/v1/stats/` endpoint adds usage
+  analytics: documents by status, the 👍/👎 feedback ratio, token totals and
+  a 14-day activity series.
+- **321 tests, 95% coverage, ruff-clean** — and CI that runs the suite against
   a real pgvector/Redis service.
 
 ## Architecture
@@ -222,7 +228,7 @@ Everything is environment-driven (see [`.env.example`](.env.example)):
 ## Testing & quality
 
 ```bash
-docker compose exec web pytest                                  # 298 tests, coverage 94.7%
+docker compose exec web pytest                                  # 321 tests, coverage 95.1%
 docker compose exec web ruff check .                            # lint
 docker compose exec web ruff format --check .                   # format
 docker compose exec web python manage.py makemigrations --check # migrations in sync
@@ -255,7 +261,7 @@ apps/chat/           conversations, retrieval (hybrid: pgvector + FTS + RRF),
 apps/common/         error taxonomy, embedding/LLM provider abstractions,
                      throttling, health view
 templates/ + static/demo/   the zero-build demo UI
-tests/               298 tests: factories, fixtures, unit + API + N+1 + SSE + fusion
+tests/               321 tests: factories, fixtures, unit + API + N+1 + SSE + fusion
 docs/                architecture deep dive, screenshots
 ```
 

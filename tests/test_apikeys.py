@@ -13,9 +13,7 @@ pytestmark = pytest.mark.django_db
 
 
 def create_key(client, name="ci", scope="read"):
-    return client.post(
-        reverse("apikeys:api-keys"), {"name": name, "scope": scope}, format="json"
-    )
+    return client.post(reverse("apikeys:api-keys"), {"name": name, "scope": scope}, format="json")
 
 
 class TestKeyCreation:
@@ -76,9 +74,7 @@ class TestRevocation:
         create_key(auth_api)
         key = APIKey.objects.get()
 
-        response = auth_api.post(
-            reverse("apikeys:api-key-revoke", kwargs={"pk": key.pk})
-        )
+        response = auth_api.post(reverse("apikeys:api-key-revoke", kwargs={"pk": key.pk}))
 
         assert response.status_code == status.HTTP_200_OK
         key.refresh_from_db()
@@ -98,9 +94,7 @@ class TestRevocation:
     def test_cannot_revoke_someone_elses_key(self, auth_api):
         other_key, _raw = APIKey.generate(user=UserFactory(), name="theirs")
 
-        response = auth_api.post(
-            reverse("apikeys:api-key-revoke", kwargs={"pk": other_key.pk})
-        )
+        response = auth_api.post(reverse("apikeys:api-key-revoke", kwargs={"pk": other_key.pk}))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         other_key.refresh_from_db()

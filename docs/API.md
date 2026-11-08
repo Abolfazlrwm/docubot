@@ -3,7 +3,8 @@
 All endpoints live under `/api/v1/`. Interactive docs: `/api/docs/` (Swagger UI)
 and `/api/schema/` (raw OpenAPI 3).
 
-Unless stated otherwise, endpoints require a JWT access token:
+Endpoints accept a JWT access token (shown below) **or** a personal API
+key (`X-API-Key` — see [API keys](#api-keys)):
 
 ```
 Authorization: Bearer <access token>
@@ -36,6 +37,30 @@ curl -X POST http://localhost:8000/api/v1/auth/login/ \
 curl -X POST http://localhost:8000/api/v1/auth/refresh/ \
   -H 'Content-Type: application/json' -d '{"refresh": "<refresh token>"}'
 ```
+
+## API keys
+
+Personal keys let scripts, CI and integrations call the API without handling
+JWT rotation. Create one, copy the secret (shown **only once**), send it as a
+header:
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/api/v1/keys/` | List my keys (masked, with `last_used_at`) |
+| POST | `/api/v1/keys/` | Create a key: `{"name": "ci", "scope": "write"}` |
+| POST | `/api/v1/keys/{id}/revoke/` | Revoke immediately (idempotent) |
+
+```bash
+KEY=$(curl -s -X POST http://localhost:8000/api/v1/keys/ \
+  -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
+  -d '{"name": "ci-bot", "scope": "write"}' | jq -r .key)
+
+curl http://localhost:8000/api/v1/documents/ -H "X-API-Key: $KEY"
+```
+
+Keys are stored **hashed** (SHA-256). `scope: read` may only issue safe
+methods (GET/HEAD/OPTIONS); `scope: write` can upload, ask and delete.
+Revocation takes effect immediately; listing never reveals the secret.
 
 ## Documents
 
@@ -186,3 +211,13 @@ Writes are throttled per user (scoped buckets, only unsafe methods count):
 
 Exceeding a bucket returns `429 Too Many Requests` with a `Retry-After` header.
 Reads (GET/HEAD/OPTIONS) are never metered.
+
+## Usage analytics (admin)
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/api/v1/stats/` | Aggregate usage stats (staff only) |
+
+Returns users, documents by status, chunks, conversations, messages by role,
+token totals, the 👍/👎 feedback ratio, API-key adoption and `activity_14d` —
+a continuous per-day series of assistant messages over the last two weeks.

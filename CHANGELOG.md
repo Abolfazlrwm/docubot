@@ -4,6 +4,24 @@ All notable changes to DocuBot are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] — 2026-11-08
+
+### Added
+
+- **Personal API keys.** `POST /api/v1/keys/` mints a `dbk_…` secret that is
+  shown exactly once and stored only as a **SHA-256 hash**. Keys carry a
+  **read/write scope** (`read` may only issue safe methods), can be **revoked**
+  instantly (`POST /api/v1/keys/{id}/revoke/`) and record `last_used_at`.
+  Every existing endpoint now accepts `X-API-Key` alongside JWT — scripts, CI
+  and integrations no longer need to rotate bearer tokens.
+- **Admin usage analytics.** `GET /api/v1/stats/` (staff only) returns users,
+  documents by status, chunks, messages by role, token totals, the 👍/👎
+  feedback ratio, API-key adoption and a zero-filled **14-day activity
+  series** — one round of aggregate queries, dashboard-ready.
+- Test suite grew from 298 to **321 tests** with coverage steady around 95%:
+  key lifecycle, scope enforcement, revocation, invalid-key rejection and
+  analytics shape/numbers/access control.
+
 ## [1.2.0] — 2026-11-05
 
 ### Added
