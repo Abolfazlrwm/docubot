@@ -146,7 +146,7 @@ REST_FRAMEWORK = {
 SPECTACULAR_SETTINGS = {
     "TITLE": "DocuBot API",
     "DESCRIPTION": "RAG knowledge-base API: upload documents, then search and chat over them.",
-    "VERSION": "1.1.0",
+    "VERSION": "1.3.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "TAGS": [
         {"name": "auth", "description": "Registration, login and the current user."},
