@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.users",
     "apps.documents",
     "apps.chat",
+    "apps.apikeys",
 ]
 
 MIDDLEWARE = [
