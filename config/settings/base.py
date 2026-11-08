@@ -115,9 +115,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
+        # JWT first (unchanged challenge behaviour); the API-key authenticator
+        # only engages when the request carries an X-API-Key header.
         "rest_framework_simplejwt.authentication.JWTAuthentication",
+        "apps.apikeys.authentication.APIKeyAuthentication",
     ),
-    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
+    "DEFAULT_PERMISSION_CLASSES": (
+        # Enforces API-key scopes; a no-op for every other authentication method.
+        "apps.apikeys.permissions.HasAPIKeyScope",
+        "rest_framework.permissions.IsAuthenticated",
+    ),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_FILTER_BACKENDS": (
