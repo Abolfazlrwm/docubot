@@ -3,7 +3,7 @@ from django.urls import include, path
 from django.views.generic import TemplateView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from apps.common.views import health_view
+from apps.common.views import health_view, stats_view
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -12,6 +12,7 @@ urlpatterns = [
     path("api/v1/", include("apps.chat.urls")),
     path("api/v1/", include("apps.apikeys.urls")),
     path("api/v1/health/", health_view, name="health"),
+    path("api/v1/stats/", stats_view, name="stats"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="docs"),
     path("demo/", TemplateView.as_view(template_name="demo.html"), name="demo"),

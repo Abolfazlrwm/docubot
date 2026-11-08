@@ -153,6 +153,8 @@ SPECTACULAR_SETTINGS = {
         {"name": "documents", "description": "Upload, list, inspect and delete documents."},
         {"name": "search", "description": "Semantic search over ready documents."},
         {"name": "chat", "description": "Conversations and RAG answers (JSON and SSE streaming)."},
+        {"name": "keys", "description": "Personal API keys for programmatic access."},
+        {"name": "stats", "description": "Admin-only usage analytics."},
         {"name": "health", "description": "Service health for load balancers and orchestrators."},
     ],
 }
