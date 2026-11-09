@@ -103,6 +103,16 @@ def health_view(request):
 # ---------------------------------------------------------------------------
 
 
+class TopKeySerializer(serializers.Serializer):
+    """One entry of the most-used API keys ranking."""
+
+    name = serializers.CharField()
+    masked = serializers.CharField()
+    scope = serializers.CharField()
+    request_count = serializers.IntegerField()
+    last_used_at = serializers.DateTimeField()
+
+
 class StatsSerializer(serializers.Serializer):
     """Response shape of the admin analytics endpoint."""
 
@@ -113,7 +123,7 @@ class StatsSerializer(serializers.Serializer):
     messages = serializers.DictField(child=serializers.IntegerField())
     feedback = serializers.DictField()
     tokens = serializers.DictField(child=serializers.IntegerField())
-    api_keys = serializers.DictField(child=serializers.IntegerField())
+    api_keys = serializers.DictField()
     activity_14d = serializers.ListField()
 
 
@@ -151,7 +161,8 @@ def _activity_series(days: int = 14) -> list:
     summary="Usage analytics (admin only)",
     description=(
         "Aggregate usage signals: users, documents by status, chunks, messages "
-        "by role, token totals, the feedback ratio, API-key adoption and a "
+        "by role, token totals, the feedback ratio, API-key adoption and "
+        "traffic (lifetime request counter plus the five most-used keys) and a "
         "14-day activity series. Staff only."
     ),
     responses=StatsSerializer,
@@ -188,6 +199,19 @@ def stats_view(request):
             "api_keys": {
                 "total": APIKey.objects.count(),
                 "active": APIKey.objects.filter(is_active=True, revoked_at__isnull=True).count(),
+                "requests_total": APIKey.objects.aggregate(n=Sum("request_count"))["n"] or 0,
+                "top_keys": [
+                    {
+                        "name": key.name,
+                        "masked": key.masked,
+                        "scope": key.scope,
+                        "request_count": key.request_count,
+                        "last_used_at": key.last_used_at,
+                    }
+                    for key in APIKey.objects.filter(request_count__gt=0).order_by(
+                        "-request_count", "name"
+                    )[:5]
+                ],
             },
             "activity_14d": _activity_series(),
         }
