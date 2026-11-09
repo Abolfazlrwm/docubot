@@ -1,10 +1,12 @@
-"""Tests for the scoped rate limits (auth, chat, search, upload)."""
+"""Tests for the scoped rate limits (auth, chat, search, upload) and the
+per-API-key request budget."""
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
 
+from apps.apikeys.models import APIKey
 from tests.factories import PASSWORD, UserFactory
 
 User = get_user_model()
@@ -14,6 +16,7 @@ pytestmark = pytest.mark.django_db
 LOGIN_URL = reverse("users:login")
 REGISTER_URL = reverse("users:register")
 SEARCH_URL = reverse("chat:search")
+DOCS_URL = reverse("documents:document-list")
 
 
 def set_rate(settings, scope: str, rate: str) -> None:
@@ -114,3 +117,71 @@ class TestUploadThrottle:
         for _ in range(3):  # any number of GETs never hits the upload bucket
             response = auth_api.get(reverse("documents:document-list"))
             assert response.status_code == status.HTTP_200_OK
+
+
+class TestAPIKeyBudget:
+    """Every personal key owns a per-minute request budget; JWT is untouched."""
+
+    @pytest.fixture
+    def key_api(self, api, user):
+        """An APIClient with a fresh read key whose budget can be tuned."""
+
+        def make(rate_limit=None):
+            _key, raw = APIKey.generate(user=user, name="bot", rate_limit=rate_limit)
+            api.credentials(HTTP_X_API_KEY=raw)
+            return api
+
+        return make
+
+    def test_budget_is_enforced_with_429_and_retry_after(self, key_api):
+        client = key_api(rate_limit=2)
+
+        assert client.get(DOCS_URL).status_code == status.HTTP_200_OK
+        assert client.get(DOCS_URL).status_code == status.HTTP_200_OK
+        throttled = client.get(DOCS_URL)
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert 0 <= int(throttled.headers["Retry-After"]) <= 60
+
+    def test_key_without_override_uses_the_instance_default(self, key_api, settings):
+        settings.APIKEY_RATE_LIMIT = 3
+        client = key_api(rate_limit=None)
+
+        for _ in range(3):
+            assert client.get(DOCS_URL).status_code == status.HTTP_200_OK
+        assert client.get(DOCS_URL).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+    def test_jwt_traffic_is_never_metered(self, auth_api, settings):
+        settings.APIKEY_RATE_LIMIT = 1
+
+        for _ in range(5):  # the same volume that would throttle a key
+            assert auth_api.get(DOCS_URL).status_code == status.HTTP_200_OK
+        assert "X-RateLimit-Limit" not in auth_api.get(DOCS_URL).headers
+
+    def test_success_headers_report_the_remaining_budget(self, key_api):
+        client = key_api(rate_limit=5)
+
+        response = client.get(DOCS_URL)
+
+        assert response.headers["X-RateLimit-Limit"] == "5"
+        assert response.headers["X-RateLimit-Remaining"] == "4"
+        assert int(response.headers["X-RateLimit-Reset"]) > 0
+
+    def test_429_headers_show_an_empty_budget(self, key_api):
+        client = key_api(rate_limit=1)
+
+        assert client.get(DOCS_URL).status_code == status.HTTP_200_OK
+        throttled = client.get(DOCS_URL)
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert throttled.headers["X-RateLimit-Remaining"] == "0"
+
+    def test_usage_counter_accumulates(self, key_api, user):
+        client = key_api(rate_limit=10)
+
+        for _ in range(3):
+            client.get(DOCS_URL)
+
+        key = APIKey.objects.get(user=user)
+        assert key.request_count == 3
+        assert key.last_used_at is not None

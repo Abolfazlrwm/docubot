@@ -44,6 +44,27 @@ class TestKeyCreation:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_create_with_a_rate_limit_override(self, auth_api):
+        response = auth_api.post(
+            reverse("apikeys:api-keys"),
+            {"name": "tight", "rate_limit": 7},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.data["rate_limit"] == 7
+        assert APIKey.objects.get().rate_limit == 7
+
+    def test_create_rejects_an_impossible_rate_limit(self, auth_api):
+        response = auth_api.post(
+            reverse("apikeys:api-keys"),
+            {"name": "greedy", "rate_limit": 0},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not APIKey.objects.exists()
+
 
 class TestKeyListing:
     def test_never_exposes_the_secret(self, auth_api):
@@ -59,6 +80,8 @@ class TestKeyListing:
             assert "key" not in item
             assert "hashed_key" not in item
             assert item["masked"].startswith(APIKey.KEY_PREFIX)
+            assert "rate_limit" in item  # budget visible to the owner
+            assert "request_count" in item  # usage visible to the owner
 
     def test_owner_scoped(self, auth_api):
         create_key(auth_api, name="mine")

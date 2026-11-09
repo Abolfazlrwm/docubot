@@ -3,6 +3,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -96,3 +97,24 @@ class TestStatsNumbers:
         series = response.data["activity_14d"]
         assert series[0]["date"] < series[-1]["date"]
         assert all(d["assistant_messages"] == 0 for d in series)
+
+    def test_api_key_traffic_ranking(self, staff_api, user):
+        staff = get_user_model().objects.get(is_staff=True)
+        APIKey.generate(user=staff, name="ops", scope=APIKey.Scope.WRITE)  # never used
+        busy, _raw = APIKey.generate(user=user, name="ci", scope=APIKey.Scope.WRITE)
+        quiet, _raw2 = APIKey.generate(user=user, name="cron")
+        APIKey.objects.filter(pk=busy.pk).update(request_count=40, last_used_at=timezone.now())
+        APIKey.objects.filter(pk=quiet.pk).update(request_count=5, last_used_at=timezone.now())
+
+        response = staff_api.get(STATS_URL)
+
+        body = response.data["api_keys"]
+        assert body["total"] == 3
+        assert body["active"] == 3
+        assert body["requests_total"] == 45
+        top = body["top_keys"]
+        assert [k["name"] for k in top] == ["ci", "cron"]  # unused keys stay out
+        assert top[0]["request_count"] == 40
+        assert top[0]["scope"] == "write"
+        assert top[0]["masked"].startswith(APIKey.KEY_PREFIX)
+        assert "hashed_key" not in top[0]
