@@ -46,14 +46,14 @@ header:
 
 | Method | Path | Description |
 | --- | --- | --- |
-| GET | `/api/v1/keys/` | List my keys (masked, with `last_used_at`) |
-| POST | `/api/v1/keys/` | Create a key: `{"name": "ci", "scope": "write"}` |
+| GET | `/api/v1/keys/` | List my keys (masked, with usage counters) |
+| POST | `/api/v1/keys/` | Create a key: `{"name": "ci", "scope": "write", "rate_limit": 60}` |
 | POST | `/api/v1/keys/{id}/revoke/` | Revoke immediately (idempotent) |
 
 ```bash
 KEY=$(curl -s -X POST http://localhost:8000/api/v1/keys/ \
   -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' \
-  -d '{"name": "ci-bot", "scope": "write"}' | jq -r .key)
+  -d '{"name": "ci-bot", "scope": "write", "rate_limit": 3}' | jq -r .key)
 
 curl http://localhost:8000/api/v1/documents/ -H "X-API-Key: $KEY"
 ```
@@ -61,6 +61,28 @@ curl http://localhost:8000/api/v1/documents/ -H "X-API-Key: $KEY"
 Keys are stored **hashed** (SHA-256). `scope: read` may only issue safe
 methods (GET/HEAD/OPTIONS); `scope: write` can upload, ask and delete.
 Revocation takes effect immediately; listing never reveals the secret.
+
+### Rate limiting and usage metering
+
+Every key owns a **per-minute request budget**. Set `rate_limit` (1–10000)
+at creation for a per-key cap, or leave it out to inherit
+`APIKEY_RATE_LIMIT` (default 120/min, env-tunable). JWT traffic is never
+metered by it. Every response to a key-authenticated request carries:
+
+| Header | Meaning |
+| --- | --- |
+| `X-RateLimit-Limit` | the key's effective per-minute budget |
+| `X-RateLimit-Remaining` | requests still available in this window |
+| `X-RateLimit-Reset` | unix epoch at which the window frees up |
+| `Retry-After` | on **429** only: seconds until the next allowed request |
+
+The budget is a sliding 60-second window backed by Redis; once it is spent
+the API answers `429 Too Many Requests` until the window rolls forward.
+Each key also keeps a lifetime `request_count` (exposed in the keys listing
+and ranked in the admin `/api/v1/stats/` payload as `top_keys`), so you can
+see which integration is eating the traffic.
+
+![Live per-key rate limiting: budget counts down, then 429 with Retry-After](assets/rate-limit-429.png)
 
 ## Documents
 

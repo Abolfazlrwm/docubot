@@ -4,6 +4,30 @@ All notable changes to DocuBot are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and the project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.4.0] — 2026-11-09
+
+### Added
+
+- **Per-key rate limiting.** Every personal key owns a sliding 60-second
+  request budget: its own `rate_limit` override (1–10000, set at creation)
+  or the instance-wide `APIKEY_RATE_LIMIT` default (120/min). Exhausted
+  budgets answer **429** with a `Retry-After` header; JWT traffic is never
+  metered by it. Backed by the existing cache, zero new services.
+- **`X-RateLimit-*` response headers.** `X-RateLimit-Limit`,
+  `X-RateLimit-Remaining` and `X-RateLimit-Reset` ride along on every
+  key-authenticated response (success or 429), read from the same cache
+  bucket the throttle enforces — headers and enforcement can never
+  disagree.
+- **Usage metering.** Keys now track a lifetime `request_count` alongside
+  `last_used_at`; both surface in the keys listing.
+- **Analytics: API-key traffic.** `/api/v1/stats/` (staff) now reports
+  `api_keys.requests_total` and a `top_keys` ranking (top 5 by usage, with
+  masked keys) next to the existing adoption counters.
+- Test suite grew from 321 to **330 tests**, coverage up to **95.2%**:
+  budget enforcement and 429s, header math on success and rejection,
+  JWT immunity, per-key overrides via the API, usage counters and the
+  analytics ranking.
+
 ## [1.3.0] — 2026-11-08
 
 ### Added

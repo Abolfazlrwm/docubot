@@ -14,7 +14,7 @@ clickable `[n]` citations that resolve to document and page. A zero-build
 ![Python](https://img.shields.io/badge/python-3.12-blue.svg)
 ![Django](https://img.shields.io/badge/django-5.2-092E20.svg)
 ![Postgres](https://img.shields.io/badge/postgres-16%20%2B%20pgvector-336791.svg)
-![Tests](https://img.shields.io/badge/tests-321%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-330%20passing-brightgreen.svg)
 [![codecov](https://codecov.io/gh/Abolfazlrwm/docubot/graph/badge.svg)](https://codecov.io/gh/Abolfazlrwm/docubot)
 ![Code style](https://img.shields.io/badge/code%20style-ruff-261230.svg)
 ![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)
@@ -22,6 +22,10 @@ clickable `[n]` citations that resolve to document and page. A zero-build
 | Chat with streaming answers and citations | Document library with live processing status |
 | --- | --- |
 | ![Chat demo](docs/assets/demo-chat.png) | ![Library demo](docs/assets/demo-library.png) |
+
+| Per-key rate limiting, live | The keys endpoint in Swagger |
+| --- | --- |
+| ![429 with X-RateLimit headers](docs/assets/rate-limit-429.png) | ![rate_limit in the schema](docs/assets/swagger-rate-limit.png) |
 
 ## Why this project is different
 
@@ -56,16 +60,21 @@ notebook, done properly:
   abstractions with three implementations each (local/fastembed, any
   OpenAI-compatible endpoint, Anthropic) plus deterministic fakes that let the
   whole system run offline with zero API keys.
-- **Hardened edges.** Scoped rate limits on auth/chat/search/uploads, JWT with
+- **Hardened edges.** Scoped rate limits on auth/chat/search/uploads plus a
+  per-key budget for API traffic, JWT with
   rotation + blacklist, content-based upload validation, prompt-injection
   mitigation and enforced source citations.
 - **API keys for programmatic access.** Personal `dbk_…` keys — hashed,
   shown once, read/write scoped, revocable, with `last_used_at` tracking —
   let scripts, CI and integrations call the entire API via `X-API-Key`
-  without JWT rotation. A staff-only `/api/v1/stats/` endpoint adds usage
-  analytics: documents by status, the 👍/👎 feedback ratio, token totals and
-  a 14-day activity series.
-- **321 tests, 95% coverage, ruff-clean** — and CI that runs the suite against
+  without JWT rotation. Every key owns a **per-minute request budget**
+  (overridable per key, env-tunable default) enforced with 429 +
+  `Retry-After` and made visible through standard `X-RateLimit-*` response
+  headers, plus a lifetime `request_count` usage meter. A staff-only
+  `/api/v1/stats/` endpoint adds usage analytics: documents by status, the
+  👍/👎 feedback ratio, token totals, the most-used keys and a 14-day
+  activity series.
+- **330 tests, 95.2% coverage, ruff-clean** — and CI that runs the suite against
   a real pgvector/Redis service.
 
 ## Architecture
@@ -203,6 +212,10 @@ persist nothing.
 | POST | `/api/v1/conversations/{id}/messages/` | JWT | Ask a question → JSON answer + sources + citations |
 | POST | `/api/v1/conversations/{id}/messages/stream/` | JWT | Ask → **SSE stream** |
 | POST/DELETE | `/api/v1/conversations/{id}/messages/{mid}/feedback/` | JWT | Thumbs up/down (+ comment) on an answer |
+| GET | `/api/v1/keys/` | JWT | List my keys (masked, usage counters) |
+| POST | `/api/v1/keys/` | JWT | Mint a key (shown once); optional `rate_limit` |
+| POST | `/api/v1/keys/{id}/revoke/` | JWT | Revoke immediately (idempotent) |
+| GET | `/api/v1/stats/` | staff | Usage analytics incl. top API keys |
 | GET | `/api/v1/health/` | public | DB / cache / Celery status for probes |
 
 ## Configuration
@@ -222,13 +235,14 @@ Everything is environment-driven (see [`.env.example`](.env.example)):
 | `QUERY_REWRITE_ENABLED` | `1` | Rewrite follow-ups into standalone queries |
 | `CHAT_HISTORY_MESSAGES` | `6` | Conversation memory in the RAG prompt |
 | `THROTTLE_AUTH` / `THROTTLE_CHAT` / `THROTTLE_SEARCH` / `THROTTLE_UPLOAD` | `30/min`, `60/min`, `60/min`, `60/hour` | Scoped rate limits |
+| `APIKEY_RATE_LIMIT` | `120` | Per-minute request budget for API keys (each key may override) |
 | `MAX_UPLOAD_SIZE` | `10485760` | Upload cap in bytes |
 | `CELERY_TASK_ALWAYS_EAGER` | `False` | Run tasks inline (tests) |
 
 ## Testing & quality
 
 ```bash
-docker compose exec web pytest                                  # 321 tests, coverage 95.1%
+docker compose exec web pytest                                  # 330 tests, coverage 95.2%
 docker compose exec web ruff check .                            # lint
 docker compose exec web ruff format --check .                   # format
 docker compose exec web python manage.py makemigrations --check # migrations in sync
@@ -261,7 +275,7 @@ apps/chat/           conversations, retrieval (hybrid: pgvector + FTS + RRF),
 apps/common/         error taxonomy, embedding/LLM provider abstractions,
                      throttling, health view
 templates/ + static/demo/   the zero-build demo UI
-tests/               321 tests: factories, fixtures, unit + API + N+1 + SSE + fusion
+tests/               330 tests: factories, fixtures, unit + API + N+1 + SSE + fusion
 docs/                architecture deep dive, screenshots
 ```
 
@@ -272,7 +286,7 @@ docs/                architecture deep dive, screenshots
 - [ ] DOCX/Markdown ingestion
 - [ ] Answer reranking (cross-encoder) behind a feature flag
 - [ ] Retrieval eval harness (golden questions in CI)
-- [ ] Per-user API keys + usage quotas
+- [x] Per-user API keys + usage quotas (keys v1.3.0, per-key budgets v1.4.0)
 
 ## Contributing
 
