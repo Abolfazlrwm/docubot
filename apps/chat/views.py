@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from apps.apikeys.throttling import APIKeyRateThrottle
 from apps.chat import retrieval, services
 from apps.chat.models import Conversation, Message
 from apps.chat.serializers import (
@@ -26,7 +27,7 @@ from apps.common.throttling import WriteMethodsRateThrottle
 class SearchView(APIView):
     """Semantic search over the authenticated user's ready documents."""
 
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [ScopedRateThrottle, APIKeyRateThrottle]
     throttle_scope = "search"
 
     @extend_schema(
@@ -95,7 +96,7 @@ class ConversationViewSet(
 class MessageListCreateView(generics.ListCreateAPIView):
     """GET: chronological history. POST: ask a question, get the assistant reply."""
 
-    throttle_classes = [WriteMethodsRateThrottle]
+    throttle_classes = [WriteMethodsRateThrottle, APIKeyRateThrottle]
     throttle_scope = "chat"
 
     def get_serializer_class(self):
@@ -156,7 +157,7 @@ class MessageListCreateView(generics.ListCreateAPIView):
 class MessageFeedbackView(APIView):
     """POST: set/update the rating; DELETE: clear it."""
 
-    throttle_classes = [WriteMethodsRateThrottle]
+    throttle_classes = [WriteMethodsRateThrottle, APIKeyRateThrottle]
     throttle_scope = "chat"
 
     def _get_message(self, request, conversation_pk: int, message_pk: int) -> Message:
@@ -207,7 +208,7 @@ class MessageFeedbackView(APIView):
 class MessageStreamView(APIView):
     """POST: ask a question, stream the answer as text/event-stream."""
 
-    throttle_classes = [WriteMethodsRateThrottle]
+    throttle_classes = [WriteMethodsRateThrottle, APIKeyRateThrottle]
     throttle_scope = "chat"
 
     def post(self, request, conversation_pk: int):

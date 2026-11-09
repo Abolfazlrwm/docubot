@@ -4,6 +4,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from apps.apikeys.throttling import APIKeyRateThrottle
 from apps.common.throttling import WriteMethodsRateThrottle
 from apps.documents import services
 from apps.documents.models import Document
@@ -33,7 +34,7 @@ class DocumentViewSet(
     search_fields = ["title"]
     ordering_fields = ["created_at", "title", "size_bytes"]
     # Uploads (and reprocess) are the expensive writes; reads stay unmetered.
-    throttle_classes = [WriteMethodsRateThrottle]
+    throttle_classes = [WriteMethodsRateThrottle, APIKeyRateThrottle]
     throttle_scope = "upload"
 
     def get_queryset(self):

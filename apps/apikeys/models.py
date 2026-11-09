@@ -4,17 +4,21 @@ Design notes:
 
 - Only the SHA-256 hash of a key is stored; the raw secret is shown exactly
   once at creation, like GitHub personal access tokens.
-- A short prefix is kept for display (``dbk_ab12cd…``) so a key can be
+- A short prefix is kept for display (``dbk_ab12cd...``) so a key can be
   recognised in a list without exposing anything verifiable.
 - Scopes: ``read`` may only issue safe methods; ``write`` can do everything
   (write implies read).
+- Usage: every authenticated request bumps ``request_count`` and
+  ``last_used_at``; a key may carry its own per-minute ``rate_limit``.
 """
 
 import hashlib
 import secrets
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import F
 from django.utils import timezone
 
 
@@ -41,6 +45,13 @@ class APIKey(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    rate_limit = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(10000)],
+        help_text="Optional per-minute request cap; overrides the instance default.",
+    )
+    request_count = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         ordering = ["-created_at"]
@@ -49,13 +60,14 @@ class APIKey(models.Model):
         return f"{self.name} ({self.masked})"
 
     @classmethod
-    def generate(cls, user, name: str, scope: str = Scope.READ):
+    def generate(cls, user, name: str, scope: str = Scope.READ, rate_limit: int | None = None):
         """Create a key. Returns ``(instance, raw_key)``; raw is shown once."""
         raw = f"{cls.KEY_PREFIX}_{secrets.token_urlsafe(32)}"
         key = cls.objects.create(
             user=user,
             name=name,
             scope=scope,
+            rate_limit=rate_limit,
             prefix=raw[: cls.PREFIX_DISPLAY_LENGTH],
             hashed_key=cls.hash(raw),
         )
@@ -82,9 +94,14 @@ class APIKey(models.Model):
         self.save(update_fields=["revoked_at", "is_active"])
 
     def touch(self) -> None:
-        self.last_used_at = timezone.now()
-        self.save(update_fields=["last_used_at"])
+        """Record usage: bump last_used_at and the lifetime request counter."""
+        now = timezone.now()
+        type(self).objects.filter(pk=self.pk).update(
+            last_used_at=now,
+            request_count=F("request_count") + 1,
+        )
+        self.last_used_at = now
 
     @property
     def masked(self) -> str:
-        return f"{self.prefix}…"
+        return f"{self.prefix}..."

@@ -4,6 +4,7 @@ from rest_framework import generics, permissions
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from apps.apikeys.throttling import APIKeyRateThrottle
 from apps.users.serializers import RegisterSerializer, UserSerializer
 
 User = get_user_model()
@@ -16,7 +17,7 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [ScopedRateThrottle, APIKeyRateThrottle]
     throttle_scope = "auth"
 
 
@@ -24,14 +25,14 @@ class RegisterView(generics.CreateAPIView):
 class LoginView(TokenObtainPairView):
     permission_classes = [permissions.AllowAny]
     # Brute-force protection: the auth scope also covers register/refresh.
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [ScopedRateThrottle, APIKeyRateThrottle]
     throttle_scope = "auth"
 
 
 @extend_schema(tags=["auth"], summary="Refresh an access token")
 class RefreshView(TokenRefreshView):
     permission_classes = [permissions.AllowAny]
-    throttle_classes = [ScopedRateThrottle]
+    throttle_classes = [ScopedRateThrottle, APIKeyRateThrottle]
     throttle_scope = "auth"
 
 

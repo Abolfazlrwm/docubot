@@ -125,6 +125,9 @@ REST_FRAMEWORK = {
         "apps.apikeys.permissions.HasAPIKeyScope",
         "rest_framework.permissions.IsAuthenticated",
     ),
+    # Per-key rate limiting: engages only for X-API-Key traffic. Views with
+    # explicit throttle_classes list it alongside their scoped throttle.
+    "DEFAULT_THROTTLE_CLASSES": ("apps.apikeys.throttling.APIKeyRateThrottle",),
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_FILTER_BACKENDS": (
@@ -142,6 +145,10 @@ REST_FRAMEWORK = {
         "upload": os.environ.get("THROTTLE_UPLOAD", "60/hour"),
     },
 }
+
+# Default per-minute budget for personal API keys (each key can override it
+# with its own rate_limit; JWT traffic is never metered by it).
+APIKEY_RATE_LIMIT = int(os.environ.get("APIKEY_RATE_LIMIT", "120"))
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "DocuBot API",

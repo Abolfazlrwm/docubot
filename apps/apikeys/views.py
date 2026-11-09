@@ -15,7 +15,8 @@ from apps.apikeys.serializers import APIKeyCreateSerializer, APIKeySerializer
         summary="Create an API key",
         description=(
             "Returns the raw key exactly once; only its SHA-256 hash is stored. "
-            "scope=read may only issue safe methods, scope=write can do everything."
+            "scope=read may only issue safe methods, scope=write can do everything. "
+            "rate_limit optionally caps this key's requests per minute."
         ),
         request=APIKeyCreateSerializer,
         tags=["keys"],
@@ -39,6 +40,7 @@ class APIKeyListCreateView(generics.ListCreateAPIView):
             user=request.user,
             name=serializer.validated_data["name"],
             scope=serializer.validated_data["scope"],
+            rate_limit=serializer.validated_data.get("rate_limit"),
         )
         output = APIKeySerializer(key)
         return Response({**output.data, "key": raw}, status=status.HTTP_201_CREATED)
