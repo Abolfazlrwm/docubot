@@ -47,6 +47,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # X-RateLimit-* headers on API-key responses (see apps.apikeys.middleware).
+    "apps.apikeys.middleware.APIKeyRateLimitHeadersMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
