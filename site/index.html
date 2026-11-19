@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>docubot — Production-grade RAG knowledge-base backend</title>
+<meta name="description" content="Django 5.2 + pgvector + Celery — streaming (SSE) answers with citations, rate limiting, health checks. 330 tests · 95% coverage.">
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --line:#1f2a3a; --text:#e6edf3; --muted:#8b98a9;
+    --green:#3fb950; --green-dim:#1a7f37; --accent:#58a6ff; --code:#0d1117;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;line-height:1.6}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 clamp(16px,4vw,32px)}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  header{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,15,20,.9);backdrop-filter:blur(8px);z-index:10}
+  .nav{display:flex;align-items:center;justify-content:space-between;padding:14px 0;gap:12px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:clamp(1rem,2.5vw,1.15rem);color:var(--text)}
+  .brand .dot{width:11px;height:11px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}
+  .nav .links{display:flex;gap:18px;flex-wrap:wrap}
+  .hero{padding:clamp(48px,10vw,96px) 0 clamp(32px,6vw,56px)}
+  .hero h1{font-size:clamp(1.9rem,6vw,3.4rem);line-height:1.15;letter-spacing:-.02em}
+  .hero h1 em{font-style:normal;color:var(--green)}
+  .hero p.sub{color:var(--muted);max-width:640px;margin-top:16px;font-size:clamp(1rem,2.6vw,1.15rem)}
+  .cta{display:flex;gap:14px;margin-top:28px;flex-wrap:wrap}
+  .btn{display:inline-block;padding:12px 22px;border-radius:10px;font-weight:600;border:1px solid var(--line)}
+  .btn.primary{background:var(--green-dim);border-color:var(--green-dim);color:#fff}
+  .btn.primary:hover{background:var(--green);text-decoration:none}
+  .btn.ghost{color:var(--text)} .btn.ghost:hover{border-color:var(--accent);text-decoration:none}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin:36px 0 8px}
+  .stats div{background:var(--panel);padding:18px 14px;text-align:center}
+  .stats b{display:block;font-size:clamp(1.15rem,3vw,1.5rem)}
+  .stats span{color:var(--muted);font-size:.85rem}
+  section{padding:clamp(36px,7vw,64px) 0;border-top:1px solid var(--line)}
+  h2{font-size:clamp(1.4rem,4vw,2rem);margin-bottom:10px;letter-spacing:-.01em}
+  .lead{color:var(--muted);max-width:680px;margin-bottom:28px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .card h3{font-size:1.05rem;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:.95rem}
+  .card .tag{display:inline-block;font-size:.72rem;color:var(--green);border:1px solid var(--green-dim);border-radius:99px;padding:2px 10px;margin-bottom:12px}
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+  figure{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  figure img{width:100%;height:auto;display:block;border-bottom:1px solid var(--line)}
+  figcaption{padding:12px 16px;color:var(--muted);font-size:.9rem}
+  figcaption b{color:var(--text)}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:18px;overflow-x:auto;font-size:.85rem;line-height:1.7}
+  code{font-family:ui-monospace,"JetBrains Mono",Menlo,Consolas,monospace;color:#a5d6ff}
+  pre .c{color:#7ee787}
+  footer{border-top:1px solid var(--line);padding:28px 0;color:var(--muted);font-size:.9rem}
+  footer .wrap{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <span class="brand"><span class="dot"></span>docubot</span>
+    <nav class="links">
+      <a href="https://github.com/Abolfazlrwm/docubot">GitHub</a>
+      <a href="#features">Features</a>
+      <a href="#screens">Screens</a>
+      <a href="#run">Run it</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="wrap hero">
+    <h1>Ask your documents.<br>Get <em>streamed answers with citations</em>.</h1>
+    <p class="sub">docubot is a production-grade RAG knowledge-base backend: Django 5.2 + pgvector + Celery — JWT auth, streaming (SSE) answers that always cite their sources, ingestion pipeline, rate limiting and health checks. Not a notebook demo — a service you can deploy.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/Abolfazlrwm/docubot">View the code →</a>
+      <a class="btn ghost" href="#run">Quickstart</a>
+    </div>
+    <div class="stats">
+      <div><b>330</b><span>tests</span></div>
+      <div><b>95%</b><span>coverage</span></div>
+      <div><b>SSE</b><span>token streaming</span></div>
+      <div><b>pgvector</b><span>hybrid retrieval</span></div>
+      <div><b>MIT</b><span>license</span></div>
+    </div>
+  </div>
+
+  <section id="features">
+    <div class="wrap">
+      <h2>What's inside</h2>
+      <p class="lead">Every piece exists because a real deployment needs it — and each one is covered by tests.</p>
+      <div class="grid">
+        <div class="card"><span class="tag">answers</span><h3>Streaming answers with citations</h3><p>Answers stream over Server-Sent Events token by token, and every claim carries a citation back to the document and chunk it came from.</p></div>
+        <div class="card"><span class="tag">retrieval</span><h3>pgvector semantic search</h3><p>Documents are chunked and embedded into Postgres via pgvector — retrieval stays inside the database you already operate.</p></div>
+        <div class="card"><span class="tag">ingestion</span><h3>Celery ingestion pipeline</h3><p>Uploads are parsed, chunked and embedded asynchronously by Celery workers, so large libraries never block a request.</p></div>
+        <div class="card"><span class="tag">hardening</span><h3>JWT auth, rate limiting, health checks</h3><p>JWT authentication on every route, per-client rate limits with a clean 429 story, and health endpoints ready for your load balancer.</p></div>
+        <div class="card"><span class="tag">quality</span><h3>330 tests · 95% coverage</h3><p>A pytest suite that covers the API, retrieval quality, rate limiting and failure paths — wired into CI on every push.</p></div>
+        <div class="card"><span class="tag">ops</span><h3>Docker from day one</h3><p>Web, worker, Postgres and Redis ship as a compose stack, with a production compose file for real deployments.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="screens">
+    <div class="wrap">
+      <h2>The product, in screenshots</h2>
+      <p class="lead">The demo UI ships inside the repo (templates/demo.html) — these are real screens from it.</p>
+      <div class="shots">
+        <figure><img src="assets/demo-chat.png" alt="docubot chat screen — streamed answer with citations" loading="lazy"><figcaption><b>Chat.</b> A question streams in with per-claim citations.</figcaption></figure>
+        <figure><img src="assets/demo-library.png" alt="docubot document library screen" loading="lazy"><figcaption><b>Library.</b> Ingested documents with processing status.</figcaption></figure>
+        <figure><img src="assets/demo-auth.png" alt="docubot authentication screen" loading="lazy"><figcaption><b>Auth.</b> JWT login/register before anything else answers.</figcaption></figure>
+      </div>
+    </div>
+  </section>
+
+  <section id="run">
+    <div class="wrap">
+      <h2>Run it locally in a minute</h2>
+      <p class="lead">The compose stack brings up web, Celery worker, Postgres and Redis together.</p>
+<pre><code><span class="c"># clone and start the whole stack (web, worker, Postgres, Redis)</span>
+git clone https://github.com/Abolfazlrwm/docubot && cd docubot
+docker compose up -d --build
+
+<span class="c"># demo UI      → http://localhost:8000/demo/</span>
+<span class="c"># Swagger UI   → http://localhost:8000/api/docs/</span>
+<span class="c"># health JSON  → http://localhost:8000/api/v1/health/</span></code></pre>
+      <p class="lead" style="margin-top:18px">Full setup, environment variables and production notes live in the <a href="https://github.com/Abolfazlrwm/docubot#readme">README</a>.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>docubot — built by <a href="https://github.com/Abolfazlrwm">Abolfazl Ranjbaran</a></span>
+    <span><a href="https://github.com/Abolfazlrwm/docubot">github.com/Abolfazlrwm/docubot</a> · MIT</span>
+  </div>
+</footer>
+
+</body>
+</html>
