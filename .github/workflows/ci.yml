@@ -144,6 +144,7 @@ jobs:
             -e REDIS_URL=redis://redis:6379/0 \
             -e DJANGO_SECRET_KEY=ci-only-not-a-production-secret-0123456789abcdef \
             -e DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1 \
+            -e SECURE_SSL_REDIRECT=0 \
             docubot-ci
           code=000
           for i in $(seq 1 30); do
