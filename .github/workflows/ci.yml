@@ -80,3 +80,87 @@ jobs:
           files: coverage.xml
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  docker:
+    name: Docker image build & boot smoke test
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: docubot
+          POSTGRES_USER: docubot
+          POSTGRES_PASSWORD: docubot
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U docubot -d docubot"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # The pip install inside the image runs under the base image's own
+      # Python (python:X.Y-slim). A Docker base-image bump (Dependabot
+      # docker PRs) can pass the matrix job above - which uses the
+      # setup-python version, not the image interpreter - and still
+      # produce an image that cannot even resolve its wheels: e.g.
+      # onnxruntime (pulled in by fastembed) shipped no cp315 wheels when
+      # python:3.15-slim was proposed. Building and booting the image is
+      # the only check that exercises the real interpreter that ships in
+      # the container, so base-image bumps are validated for real.
+      - name: Build image
+        run: docker build -t docubot-ci .
+
+      - name: Run migrations inside the image
+        run: |
+          NET=$(docker network ls --format '{{.Name}}' | grep github_network | head -1)
+          echo "network: $NET"
+          docker run --rm --network "$NET" \
+            -e POSTGRES_HOST=db \
+            -e REDIS_URL=redis://redis:6379/0 \
+            docubot-ci python manage.py migrate --noinput
+
+      - name: Boot container and hit the health endpoint
+        run: |
+          NET=$(docker network ls --format '{{.Name}}' | grep github_network | head -1)
+          docker run -d --name docubot-ci --network "$NET" -p 8000:8000 \
+            -e POSTGRES_HOST=db \
+            -e REDIS_URL=redis://redis:6379/0 \
+            docubot-ci
+          code=000
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /tmp/health.json -w '%{http_code}' http://127.0.0.1:8000/api/v1/health/ || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          echo "health status: $code"
+          cat /tmp/health.json 2>/dev/null || true
+          docker logs docubot-ci 2>&1 | tail -20
+          [ "$code" = "200" ] || { docker rm -f docubot-ci; exit 1; }
+
+      - name: Dockerfile HEALTHCHECK reports healthy
+        run: |
+          status=starting
+          for i in $(seq 1 12); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' docubot-ci 2>/dev/null || echo starting)
+            echo "health: $status"
+            [ "$status" = "healthy" ] && break
+            sleep 5
+          done
+          docker logs docubot-ci 2>&1 | tail -5
+          docker rm -f docubot-ci > /dev/null
+          [ "$status" = "healthy" ] || exit 1
