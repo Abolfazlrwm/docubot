@@ -132,6 +132,8 @@ jobs:
           docker run --rm --network "$NET" \
             -e POSTGRES_HOST=db \
             -e REDIS_URL=redis://redis:6379/0 \
+            -e DJANGO_SECRET_KEY=ci-only-not-a-production-secret-0123456789abcdef \
+            -e DJANGO_ALLOWED_HOSTS=localhost \
             docubot-ci python manage.py migrate --noinput
 
       - name: Boot container and hit the health endpoint
@@ -140,6 +142,8 @@ jobs:
           docker run -d --name docubot-ci --network "$NET" -p 8000:8000 \
             -e POSTGRES_HOST=db \
             -e REDIS_URL=redis://redis:6379/0 \
+            -e DJANGO_SECRET_KEY=ci-only-not-a-production-secret-0123456789abcdef \
+            -e DJANGO_ALLOWED_HOSTS=localhost \
             docubot-ci
           code=000
           for i in $(seq 1 30); do
