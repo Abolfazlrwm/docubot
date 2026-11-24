@@ -17,7 +17,7 @@ httpx>=0.28.1,<1.0
 whitenoise>=6.12.0
 
 # Development / testing
-ruff>=0.17.5
+ruff>=0.17.6
 pytest>=9.2.0,<10.0
 pytest-django>=4.14.0,<5.0
 pytest-cov>=7.1.0
